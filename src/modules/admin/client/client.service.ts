@@ -7,6 +7,9 @@ import appConfig from 'src/config/app.config';
 import { StringHelper } from 'src/common/helper/string.helper';
 import { UcodeRepository } from 'src/common/repository/ucode/ucode.repository';
 import { FileUrlHelper } from 'src/common/helper/file-url.helper';
+import * as bcrypt from 'bcrypt';
+
+
 
 @Injectable()
 export class ClientService {
@@ -27,9 +30,11 @@ export class ClientService {
       createClientDto.avatar = fileName as any; // add avatar to DTO if not present
     }
 
+    const hashedPassword = await bcrypt.hash(createClientDto.password, appConfig().security.salt);
     const client = await this.prisma.user.create({
       data: {
         ...createClientDto,
+        password: hashedPassword,
         type: 'client', // or user_type: 'CLIENT'
       },
     });
@@ -52,6 +57,7 @@ export class ClientService {
         phone_number: true,
         website: true,
         created_at: true,
+        credits: true,
         status: true,
         avatar: true,
       },
@@ -72,6 +78,7 @@ export class ClientService {
         phone_number: true,
         website: true,
         created_at: true,
+        credits: true,
         status: true,
         avatar: true,
       },
@@ -89,9 +96,15 @@ export class ClientService {
       await SojebStorage.put(appConfig().storageUrl.avatar + fileName, file.buffer);
       (updateClientDto as any).avatar = fileName;
     }
+
+    let data = { ...updateClientDto };
+    if (updateClientDto.password) {
+      data.password = await bcrypt.hash(updateClientDto.password, appConfig().security.salt);
+    }
+
     const client = await this.prisma.user.update({
       where: { id },
-      data: updateClientDto,
+      data,
     });
     return { success: true, data: client };
   }
@@ -109,5 +122,74 @@ export class ClientService {
     // Delete the client from the database
     const deletedClient = await this.prisma.user.delete({ where: { id } });
     return { success: true, data: deletedClient };
+  }
+
+  async incrementCredits(clientId: string, amount: number, description?: string) {
+    const client = await this.prisma.user.update({
+      where: { id: clientId },
+      data: { credits: { increment: amount } },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        credits: true,
+        // add any other fields you want to return
+      },
+    });
+    await this.prisma.creditLog.create({
+      data: {
+        clientId,
+        amount,
+        type: 'INCREMENT',
+        description: description || `Credits increased by ${amount}`,
+      },
+    });
+    return { success: true, data: client };
+  }
+
+  async decrementCredits(clientId: string, amount: number, description?: string) {
+    // Fetch current credits
+    const user = await this.prisma.user.findUnique({
+      where: { id: clientId },
+      select: { id: true, name: true, email: true, credits: true },
+    });
+
+    if (!user) {
+      return { success: false, message: 'Client not found' };
+    }
+
+    if ((user.credits ?? 0) < amount) {
+      return { success: false, message: 'Insufficient credits. Cannot decrement below 0.' };
+    }
+
+    const client = await this.prisma.user.update({
+      where: { id: clientId },
+      data: { credits: { decrement: amount } },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        credits: true,
+      },
+    });
+
+    await this.prisma.creditLog.create({
+      data: {
+        clientId,
+        amount,
+        type: 'DECREMENT',
+        description: description || `Credits decreased by ${amount}`,
+      },
+    });
+
+    return { success: true, data: client };
+  }
+
+  async getCreditHistory(clientId: string) {
+    const logs = await this.prisma.creditLog.findMany({
+      where: { clientId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return { success: true, data: logs };
   }
 }

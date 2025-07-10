@@ -43,4 +43,29 @@ export class ClientController {
   async remove(@Param('id') id: string) {
     return this.clientService.remove(id);
   }
+
+  @Post(':id/credits/increment')
+  @UsePipes(new ValidationPipe({ whitelist: true }))
+  incrementCredits(
+    @Param('id') id: string,
+    @Body('amount') amount: number,
+    @Body('description') description?: string,
+  ) {
+    return this.clientService.incrementCredits(id, amount, description);
+  }
+
+  @Post(':id/credits/decrement')
+  @UsePipes(new ValidationPipe({ whitelist: true }))
+  decrementCredits(
+    @Param('id') id: string,
+    @Body('amount') amount: number,
+    @Body('description') description?: string,
+  ) {
+    return this.clientService.decrementCredits(id, amount, description);
+  }
+
+  @Get(':id/credits/history')
+  getCreditHistory(@Param('id') id: string) {
+    return this.clientService.getCreditHistory(id);
+  }
 }

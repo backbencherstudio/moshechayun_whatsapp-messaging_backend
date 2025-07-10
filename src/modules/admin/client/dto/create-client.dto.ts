@@ -7,6 +7,9 @@ export class CreateClientDto {
     @IsEmail()
     email: string;
 
+    @IsString()
+    password: string;
+
     @IsOptional()
     @IsString()
     phone_number?: string;
