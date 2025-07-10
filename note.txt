@@ -1,0 +1,197 @@
+User Requirement Breakdown
+1. Business Onboarding & Account Management
+    As a business, I want to register and create an account on the platform.
+    As a business, I want to invite and manage multiple users (team members) under my business.
+    As a user, I want to log in securely (with optional 2FA).
+2. WhatsApp Account Integration
+    As a business, I want to connect my WhatsApp account via QR code (using whatsapp-web.js).
+    As a business, I want to see the connection status of my WhatsApp account.
+    As a business, I want to reconnect or disconnect my WhatsApp account as needed.
+3. Contact Management
+    As a user, I want to add, import, and manage contacts with WhatsApp numbers.
+    As a user, I want to view and search my contact list.
+4. Messaging (Outbound & Inbound)
+    As a user, I want to send WhatsApp messages to contacts via the dashboard or API.
+    As a user, I want to send bulk messages to multiple contacts.
+    As a user, I want to receive incoming WhatsApp messages from clients.
+    As a user, I want to see all replies in a unified inbox.
+    As a user, I want to reply to clients directly from the system.
+5. Conversations & Unified Inbox
+    As a user, I want to view conversations grouped by contact.
+    As a user, I want to see the last 20 messages per conversation.
+    As a user, I want a chat-style interface for each conversation.
+6. Automation & Webhooks
+    As a business, I want to configure webhooks (e.g., for missed calls from PBX) to trigger WhatsApp messages automatically.
+    As a business, I want to manage and test my webhook endpoints.
+7. Templates, Credits, and Logs
+    As a user, I want to create and manage message templates for quick replies or automation.
+    As a business, I want to track my message credits (if pay-per-message).
+    As a business, I want to view logs of all messaging and webhook activity.
+8. API Access & Security
+    As a user, I want to access all features via a secure REST API with token-based authentication.
+    As a business, I want to generate and manage API tokens for integrations.
+9. Billing & Subscription (For Paid SaaS)
+    As a business, I want to subscribe to a plan or top up credits.
+    As a business, I want to view invoices and payment history.
+
+1. Core Foundation
+    User Authentication & Authorization
+    User registration, login, JWT authentication
+    Role management (admin, business user)
+    Two-factor authentication (optional, already present)
+    Business (Tenant) Management
+    Business registration/onboarding
+    Link users to businesses (multi-tenancy)
+    Business profile management
+2. WhatsApp Integration
+    WhatsApp Account Connection
+    Integrate whatsapp-web.js
+    QR code login for WhatsApp session per business
+    Store and manage WhatsApp sessions
+3. Messaging Core
+    Contact Management
+    Add/import contacts (with WhatsApp numbers) per business
+    Send WhatsApp Messages
+    Send messages via dashboard/API (single and bulk)
+    Store outbound messages in DB
+    Receive WhatsApp Messages
+    Listen for incoming messages (webhook from whatsapp-web.js)
+    Store inbound messages, match to contacts/conversations
+4. Unified Inbox & Chat
+    Conversation Management
+    Group messages into conversations per contact
+    Store/display last 20 messages per conversation
+    Unified Inbox UI/API
+    List all conversations for a business
+    View and reply to messages in chat-style interface
+5. Automation & Webhooks
+    Webhook Management
+    Register/manage webhooks (e.g., missed call triggers)
+    Trigger WhatsApp messages from external events
+6. Business Operations
+    Template Management
+    CRUD for message templates per business
+    Credit System
+    Track credits per business (if pay-per-message)
+    Deduct credits on message send
+    Logs & Activity Tracking
+    Store and view logs for messages, webhooks, etc.
+7. API & Security
+    REST API for All Features
+    Token-based authentication for API access
+    Endpoints for all business logic (contacts, messages, templates, etc.)
+    API Token Management (Optional)
+    Allow users to generate/revoke API tokens
+8. Billing & Subscription (Optional, for paid SaaS)
+    Integrate Payment Provider (e.g., Stripe)
+    Subscription or pay-per-message billing
+    Credit top-up and invoice management
+9. Polish & Scale
+    Admin Dashboard
+    Manage businesses, users, usage, and billing
+    Monitoring & Alerts
+    System health, failed webhooks, WhatsApp session status
+
+    src/
+  app.module.ts
+  main.ts
+  config/
+    app.config.ts
+    ... (other config files)
+  prisma/
+    prisma.module.ts
+    prisma.service.ts
+    schema.prisma
+    migrations/
+  modules/
+    auth/
+      auth.module.ts
+      auth.controller.ts
+      auth.service.ts
+      dto/
+      guards/
+      strategies/
+      decorators/
+    user/
+      user.module.ts
+      user.controller.ts
+      user.service.ts
+      dto/
+      entities/
+    business/
+      business.module.ts
+      business.controller.ts
+      business.service.ts
+      dto/
+      entities/
+    whatsapp/
+      whatsapp.module.ts
+      whatsapp.controller.ts
+      whatsapp.service.ts
+      session.service.ts
+      gateway.ts
+      listeners/
+      utils/
+    contact/
+      contact.module.ts
+      contact.controller.ts
+      contact.service.ts
+      dto/
+      entities/
+    conversation/
+      conversation.module.ts
+      conversation.controller.ts
+      conversation.service.ts
+      dto/
+      entities/
+    message/
+      message.module.ts
+      message.controller.ts
+      message.service.ts
+      dto/
+      entities/
+    template/
+      template.module.ts
+      template.controller.ts
+      template.service.ts
+      dto/
+      entities/
+    webhook/
+      webhook.module.ts
+      webhook.controller.ts
+      webhook.service.ts
+      dto/
+      entities/
+    credit/
+      credit.module.ts
+      credit.controller.ts
+      credit.service.ts
+      dto/
+      entities/
+    log/
+      log.module.ts
+      log.controller.ts
+      log.service.ts
+      dto/
+      entities/
+    admin/
+      admin.module.ts
+      admin.controller.ts
+      admin.service.ts
+      ... (admin features)
+  common/
+    decorators/
+    guards/
+    interceptors/
+    filters/
+    utils/
+    exceptions/
+  mail/
+    mail.module.ts
+    mail.service.ts
+    templates/
+  types/
+    index.d.ts
+  ... (other shared libs/helpers)
+test/
+  ... (e2e and unit tests)

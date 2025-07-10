@@ -82,6 +82,8 @@ model User {
   roles                Role[]
   role_users           RoleUser[]
   payment_transactions PaymentTransaction[]
+  businessId           String?
+  business             Business?            @relation(fields: [businessId], references: [id])
 
   @@map("users")
 }
@@ -282,6 +284,11 @@ model Message {
 
   message String?
 
+  businessId String?
+  business   Business? @relation(fields: [businessId], references: [id])
+  contactId  String?
+  contact    Contact?  @relation(fields: [contactId], references: [id])
+
   @@map("messages")
 }
 
@@ -318,6 +325,11 @@ model Conversation {
 
   messages Message[]
 
+  businessId String?
+  business   Business? @relation(fields: [businessId], references: [id])
+  contactId  String?
+  contact    Contact?  @relation(fields: [contactId], references: [id])
+
   @@map("conversations")
 }
 
@@ -348,6 +360,12 @@ model Contact {
   email        String?
   phone_number String?
   message      String?
+
+  businessId     String?
+  business       Business?      @relation(fields: [businessId], references: [id])
+  whatsappNumber String?
+  Message        Message[]
+  Conversation   Conversation[]
 
   @@map("contacts")
 }
@@ -419,18 +437,69 @@ model UserSetting {
   @@map("user_settings")
 }
 
-// this table stores example
-// model Note {
-//   id                String  @id @default(cuid())
-//   created_at DateTime  @default(now())
-//   updated_at DateTime  @default(now())
-//   deleted_at DateTime?
-//   status     Int?      @default(1) @db.SmallInt
+model Business {
+  id            String            @id @default(cuid())
+  created_at    DateTime          @default(now())
+  updated_at    DateTime          @default(now())
+  name          String
+  credits       Int               @default(0)
+  users         User[]
+  contacts      Contact[]
+  sessions      WhatsAppSession[]
+  templates     Template[]
+  webhooks      Webhook[]
+  logs          Log[]
+  conversations Conversation[]
+  // Add more fields as needed
+  Message       Message[]
+  Credit        Credit[]
+}
 
-//   title String?
-//   body  String? @db.Text
+model WhatsAppSession {
+  id          String   @id @default(cuid())
+  created_at  DateTime @default(now())
+  updated_at  DateTime @default(now())
+  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  businessId  String
+  sessionData String? // JSON or stringified session data
+  status      String? // e.g., 'active', 'disconnected'
+}
 
-//   tenant_id Int?
-//   tenant    Organization? @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
-//   @@map("posts")
-// }
+model Template {
+  id         String   @id @default(cuid())
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  businessId String
+  name       String
+  content    String
+}
+
+model Webhook {
+  id         String   @id @default(cuid())
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  businessId String
+  url        String
+  eventType  String // e.g., 'missed_call', 'message_received'
+}
+
+model Credit {
+  id         String   @id @default(cuid())
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  businessId String
+  amount     Int
+  reason     String?
+}
+
+model Log {
+  id         String   @id @default(cuid())
+  created_at DateTime @default(now())
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  businessId String
+  type       String // e.g., 'message', 'login', 'webhook'
+  data       String? // JSON or stringified log data
+}
