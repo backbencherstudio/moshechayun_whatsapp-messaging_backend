@@ -19,7 +19,7 @@ export class AuthService {
     private jwtService: JwtService,
     private prisma: PrismaService,
     private mailService: MailService,
-  ) {}
+  ) { }
 
   async me(userId: string) {
     try {
@@ -169,6 +169,7 @@ export class AuthService {
     pass: string,
     token?: string,
   ): Promise<any> {
+    console.log(email)
     const _password = pass;
     const user = await this.prisma.user.findFirst({
       where: {

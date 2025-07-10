@@ -57,12 +57,14 @@ model User {
   address       String?
   zip_code      String?
   gender        String?
+  website       String?
   date_of_birth DateTime? @db.Date
 
   // billing id. e.g. stripe customer id
   billing_id String?
 
-  type              String?   @default("user")
+  type              String?   @default("client")
+  user_type         String?
   email_verified_at DateTime?
 
   is_two_factor_enabled Int?    @default(0)
@@ -82,6 +84,17 @@ model User {
   roles                Role[]
   role_users           RoleUser[]
   payment_transactions PaymentTransaction[]
+  credit_logs          CreditLog[]
+  credits              Int                  @default(0) // <-- This is required for increment/decrement!
+
+  // Relations for Client
+  whatsappSessions WhatsAppSession[] @relation("ClientWhatsAppSessions")
+  templates        Template[]        @relation("ClientTemplates")
+  webhooks         Webhook[]         @relation("ClientWebhooks")
+  logs             Log[]             @relation("ClientLogs")
+  contacts         Contact[]         @relation("ClientContacts")
+  conversations    Conversation[]    @relation("ClientConversations")
+  messages         Message[]         @relation("ClientMessages")
 
   @@map("users")
 }
@@ -282,6 +295,11 @@ model Message {
 
   message String?
 
+  client    User     @relation("ClientMessages", fields: [clientId], references: [id], onDelete: Cascade)
+  clientId  String
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id])
+
   @@map("messages")
 }
 
@@ -318,6 +336,11 @@ model Conversation {
 
   messages Message[]
 
+  client    User     @relation("ClientConversations", fields: [clientId], references: [id], onDelete: Cascade)
+  clientId  String
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id])
+
   @@map("conversations")
 }
 
@@ -348,6 +371,12 @@ model Contact {
   email        String?
   phone_number String?
   message      String?
+
+  client         User           @relation("ClientContacts", fields: [clientId], references: [id], onDelete: Cascade)
+  clientId       String
+  whatsappNumber String?
+  Message        Message[]
+  Conversation   Conversation[]
 
   @@map("contacts")
 }
@@ -419,18 +448,51 @@ model UserSetting {
   @@map("user_settings")
 }
 
-// this table stores example
-// model Note {
-//   id                String  @id @default(cuid())
-//   created_at DateTime  @default(now())
-//   updated_at DateTime  @default(now())
-//   deleted_at DateTime?
-//   status     Int?      @default(1) @db.SmallInt
+model WhatsAppSession {
+  id          String   @id @default(cuid())
+  created_at  DateTime @default(now())
+  updated_at  DateTime @default(now())
+  client      User     @relation("ClientWhatsAppSessions", fields: [clientId], references: [id], onDelete: Cascade)
+  clientId    String
+  sessionData String? // JSON or stringified session data
+  status      String? // e.g., 'active', 'disconnected'
+}
 
-//   title String?
-//   body  String? @db.Text
+model Template {
+  id         String   @id @default(cuid())
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+  client     User     @relation("ClientTemplates", fields: [clientId], references: [id], onDelete: Cascade)
+  clientId   String
+  name       String
+  content    String
+}
 
-//   tenant_id Int?
-//   tenant    Organization? @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
-//   @@map("posts")
-// }
+model Webhook {
+  id         String   @id @default(cuid())
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+  client     User     @relation("ClientWebhooks", fields: [clientId], references: [id], onDelete: Cascade)
+  clientId   String
+  url        String
+  eventType  String // e.g., 'missed_call', 'message_received'
+}
+
+model Log {
+  id         String   @id @default(cuid())
+  created_at DateTime @default(now())
+  client     User     @relation("ClientLogs", fields: [clientId], references: [id], onDelete: Cascade)
+  clientId   String
+  type       String // e.g., 'message', 'login', 'webhook'
+  data       String? // JSON or stringified log data
+}
+
+model CreditLog {
+  id          String   @id @default(cuid())
+  clientId    String
+  client      User     @relation(fields: [clientId], references: [id])
+  amount      Int
+  type        String // 'INCREMENT' or 'DECREMENT'
+  description String?
+  createdAt   DateTime @default(now())
+}

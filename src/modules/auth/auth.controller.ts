@@ -27,7 +27,7 @@ import { AuthGuard } from '@nestjs/passport';
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private authService: AuthService) {}
+  constructor(private authService: AuthService) { }
 
   @ApiOperation({ summary: 'Get user details' })
   @ApiBearerAuth()
@@ -107,6 +107,7 @@ export class AuthController {
   @UseGuards(LocalAuthGuard)
   @Post('login')
   async login(@Req() req: Request) {
+    console.log(req.user)
     try {
       const user_id = req.user.id;
 
