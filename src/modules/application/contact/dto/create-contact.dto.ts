@@ -19,4 +19,7 @@ export class CreateContactDto {
   @IsNotEmpty()
   @ApiProperty()
   message: string;
+
+  @ApiProperty()
+  clientId?: string;
 }

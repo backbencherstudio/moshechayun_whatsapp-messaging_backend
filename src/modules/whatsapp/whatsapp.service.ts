@@ -2,16 +2,151 @@ import { Injectable } from '@nestjs/common';
 import { Client, LocalAuth, Message } from 'whatsapp-web.js';
 import * as qrcode from 'qrcode';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { Inject } from '@nestjs/common';
+import { WhatsAppGateway } from './whatsapp.gateway';
 
 @Injectable()
 export class WhatsAppService {
     private clients = new Map<string, Client>();
 
-    constructor(private prisma: PrismaService) { }
+    constructor(
+        private prisma: PrismaService,
+        @Inject(WhatsAppGateway) private readonly gateway: WhatsAppGateway,
+    ) {
+        this.restoreActiveSessions();
+    }
 
+    /**
+     * Restore active WhatsApp sessions on startup
+     */
+    async restoreActiveSessions() {
+        const activeSessions = await this.prisma.whatsAppSession.findMany({
+            where: { status: 'active' },
+        });
+
+        console.log(`🔄 Restoring ${activeSessions.length} active WhatsApp sessions...`);
+
+        for (const session of activeSessions) {
+            await this.initializeClient(session.clientId);
+        }
+
+        console.log(`✅ Restored ${this.clients.size} WhatsApp sessions`);
+    }
+
+    /**
+     * Initialize a WhatsApp client with event handlers
+     */
+    private async initializeClient(clientId: string) {
+        if (this.clients.has(clientId)) {
+            return;
+        }
+
+        console.log(`📱 Initializing WhatsApp client for: ${clientId}`);
+
+        const client = new Client({
+            authStrategy: new LocalAuth({ clientId }),
+            puppeteer: {
+                headless: true,
+                args: ['--no-sandbox', '--disable-setuid-sandbox'],
+            },
+        });
+
+        this.setupEventHandlers(client, clientId);
+        this.clients.set(clientId, client);
+
+        try {
+            await client.initialize();
+            console.log(`✅ WhatsApp client initialized for ${clientId}`);
+        } catch (error) {
+            console.error(`❌ Failed to initialize WhatsApp client for ${clientId}:`, error);
+        }
+    }
+
+    /**
+     * Setup event handlers for WhatsApp client
+     */
+    private setupEventHandlers(client: Client, clientId: string) {
+        // QR Code handler
+        client.on('qr', async (qr) => {
+            const qrCode = await qrcode.toDataURL(qr);
+            await this.updateSession(clientId, 'pending', { qr, qrCode });
+        });
+
+        // Ready handler
+        client.on('ready', async () => {
+            // Get the WhatsApp number (jid)
+            const meNumber = client.info?.wid?._serialized || null;
+            // Store the WhatsApp number in sessionData
+            await this.updateSession(clientId, 'active', { meNumber });
+            console.log(`✅ WhatsApp connected for client ${clientId} as ${meNumber}`);
+            this.emitStatusUpdate(clientId, 'connected');
+        });
+
+        // Message handler
+        client.on('message', async (message: Message) => {
+            await this.handleIncomingMessage(clientId, message);
+        });
+
+        // Auth failure handler
+        client.on('auth_failure', async () => {
+            await this.updateSession(clientId, 'failed');
+            console.log(`❌ WhatsApp auth failed for client ${clientId}`);
+            this.emitStatusUpdate(clientId, 'auth_failed');
+        });
+
+        // Disconnection handler
+        client.on('disconnected', async () => {
+            await this.updateSession(clientId, 'disconnected');
+            console.log(`📴 WhatsApp disconnected for client ${clientId}`);
+            this.emitStatusUpdate(clientId, 'disconnected');
+        });
+    }
+
+    /**
+     * Update session status in database
+     */
+    private async updateSession(clientId: string, status: string, sessionData?: any) {
+        const existingSession = await this.prisma.whatsAppSession.findFirst({
+            where: { clientId },
+        });
+
+        const updateData: any = { status };
+        if (sessionData) {
+            updateData.sessionData = JSON.stringify(sessionData);
+        }
+
+        if (existingSession) {
+            await this.prisma.whatsAppSession.update({
+                where: { id: existingSession.id },
+                data: updateData,
+            });
+        } else {
+            await this.prisma.whatsAppSession.create({
+                data: {
+                    clientId,
+                    ...updateData,
+                },
+            });
+        }
+    }
+
+    /**
+     * Emit status update to WebSocket clients
+     */
+    private emitStatusUpdate(clientId: string, status: string) {
+        this.gateway.sendMessageToClient(clientId, {
+            type: 'whatsapp_status',
+            status,
+            clientId,
+            timestamp: Date.now() / 1000,
+        });
+    }
+
+    /**
+     * Connect WhatsApp for a client
+     */
     async connectWhatsApp(clientId: string) {
         try {
-            // Check if already connected
             const existingSession = await this.prisma.whatsAppSession.findFirst({
                 where: { clientId, status: 'active' },
             });
@@ -20,74 +155,16 @@ export class WhatsAppService {
                 return { success: false, message: 'WhatsApp already connected' };
             }
 
-            // Create new client
-            const client = new Client({
-                authStrategy: new LocalAuth({ clientId }),
-                puppeteer: {
-                    headless: true,
-                    args: ['--no-sandbox', '--disable-setuid-sandbox'],
-                },
-            });
-
-            this.clients.set(clientId, client);
-
-            // Handle QR code
-            client.on('qr', async (qr) => {
-                const qrCode = await qrcode.toDataURL(qr);
-
-                const existingSession = await this.prisma.whatsAppSession.findFirst({
-                    where: { clientId },
-                });
-
-                if (existingSession) {
-                    await this.prisma.whatsAppSession.update({
-                        where: { id: existingSession.id },
-                        data: {
-                            sessionData: JSON.stringify({ qr, qrCode }),
-                            status: 'pending'
-                        },
-                    });
-                } else {
-                    await this.prisma.whatsAppSession.create({
-                        data: {
-                            clientId,
-                            sessionData: JSON.stringify({ qr, qrCode }),
-                            status: 'pending',
-                        },
-                    });
-                }
-            });
-
-            // Handle ready event
-            client.on('ready', async () => {
-                await this.prisma.whatsAppSession.updateMany({
-                    where: { clientId },
-                    data: { status: 'active' },
-                });
-                console.log(`WhatsApp connected for client ${clientId}`);
-            });
-
-            // Handle messages
-            client.on('message', async (message: Message) => {
-                await this.handleIncomingMessage(clientId, message);
-            });
-
-            // Handle auth failure
-            client.on('auth_failure', async () => {
-                await this.prisma.whatsAppSession.updateMany({
-                    where: { clientId },
-                    data: { status: 'failed' },
-                });
-            });
-
-            await client.initialize();
-
+            await this.initializeClient(clientId);
             return { success: true, message: 'QR code generated. Please scan to connect.' };
         } catch (error) {
             return { success: false, message: error.message };
         }
     }
 
+    /**
+     * Get QR code for a client
+     */
     async getQRCode(clientId: string) {
         const session = await this.prisma.whatsAppSession.findFirst({
             where: { clientId },
@@ -102,6 +179,9 @@ export class WhatsAppService {
         return { success: true, data: { qrCode: sessionData.qrCode } };
     }
 
+    /**
+     * Get connection status for a client
+     */
     async getConnectionStatus(clientId: string) {
         const session = await this.prisma.whatsAppSession.findFirst({
             where: { clientId },
@@ -118,6 +198,9 @@ export class WhatsAppService {
         };
     }
 
+    /**
+     * Send a message to a phone number
+     */
     async sendMessage(clientId: string, phoneNumber: string, message: string) {
         const client = this.clients.get(clientId);
         if (!client) {
@@ -125,41 +208,158 @@ export class WhatsAppService {
         }
 
         try {
-            const formattedNumber = phoneNumber.replace(/\D/g, '');
-            const chatId = `${formattedNumber}@c.us`;
+            const whatsappNumber = this.formatPhoneNumber(phoneNumber);
+            console.log(`📤 Sending message to ${whatsappNumber}`);
 
-            const result = await client.sendMessage(chatId, message);
+            const sentMsg = await client.sendMessage(whatsappNumber, message);
 
-            // Log the message
+            // Fetch the client's WhatsApp number from the sessionData
+            const session = await this.prisma.whatsAppSession.findFirst({
+                where: { clientId, status: 'active' },
+            });
+            let clientNumber = null;
+            if (session?.sessionData) {
+                try {
+                    const sessionData = JSON.parse(session.sessionData);
+                    clientNumber = sessionData.meNumber || null;
+                } catch (e) {
+                    clientNumber = null;
+                }
+            }
+
+            // Save the sent message to the Message model
+            await this.prisma.message.create({
+                data: {
+                    clientId,
+                    from: clientNumber, // your WhatsApp number
+                    to: whatsappNumber, // recipient's WhatsApp number
+                    body: message,
+                    type: sentMsg.type || 'chat',
+                    timestamp: sentMsg.timestamp
+                        ? new Date(sentMsg.timestamp * 1000)
+                        : new Date(),
+                    messageId: sentMsg.id?._serialized,
+                    direction: 'OUTBOUND', // distinguish as sent
+                },
+            });
+
+            // Log the message (as you already do)
             await this.prisma.log.create({
                 data: {
                     clientId,
                     type: 'message_sent',
                     data: JSON.stringify({
-                        phoneNumber,
+                        phoneNumber: whatsappNumber,
+                        originalNumber: phoneNumber,
                         message,
-                        messageId: result.id._serialized,
                     }),
                 },
             });
 
-            return { success: true, data: result };
+            // Return details about the sent message
+            return {
+                success: true,
+                data: {
+                    id: sentMsg.id?._serialized,
+                    to: whatsappNumber,
+                    from: clientNumber,
+                    body: message,
+                    timestamp: sentMsg.timestamp || Date.now(),
+                    type: sentMsg.type || 'chat',
+                    direction: 'OUTBOUND',
+                },
+            };
         } catch (error) {
+            console.error('❌ Error sending message:', error);
             return { success: false, message: error.message };
         }
     }
 
+    /**
+     * Send bulk messages to multiple phone numbers
+     */
     async sendBulkMessage(clientId: string, phoneNumbers: string[], message: string) {
         const results = [];
 
+        // Fetch the client's WhatsApp number from the sessionData once
+        const session = await this.prisma.whatsAppSession.findFirst({
+            where: { clientId, status: 'active' },
+        });
+        let clientNumber = null;
+        if (session?.sessionData) {
+            try {
+                const sessionData = JSON.parse(session.sessionData);
+                clientNumber = sessionData.meNumber || null;
+            } catch (e) {
+                clientNumber = null;
+            }
+        }
+
         for (const phoneNumber of phoneNumbers) {
-            const result = await this.sendMessage(clientId, phoneNumber, message);
-            results.push({ phoneNumber, ...result });
+            const client = this.clients.get(clientId);
+            if (!client) {
+                results.push({ phoneNumber, success: false, message: 'WhatsApp not connected' });
+                continue;
+            }
+
+            try {
+                const whatsappNumber = this.formatPhoneNumber(phoneNumber);
+                const sentMsg = await client.sendMessage(whatsappNumber, message);
+
+                // Save the sent message to the Message model
+                await this.prisma.message.create({
+                    data: {
+                        clientId,
+                        from: clientNumber, // your WhatsApp number
+                        to: whatsappNumber, // recipient's WhatsApp number
+                        body: message,
+                        type: sentMsg.type || 'chat',
+                        timestamp: sentMsg.timestamp
+                            ? new Date(sentMsg.timestamp * 1000)
+                            : new Date(),
+                        messageId: sentMsg.id?._serialized,
+                        direction: 'OUTBOUND', // distinguish as sent
+                    },
+                });
+
+                // Log the message
+                await this.prisma.log.create({
+                    data: {
+                        clientId,
+                        type: 'message_sent',
+                        data: JSON.stringify({
+                            phoneNumber: whatsappNumber,
+                            originalNumber: phoneNumber,
+                            message,
+                        }),
+                    },
+                });
+
+                results.push({
+                    phoneNumber,
+                    success: true,
+                    data: {
+                        id: sentMsg.id?._serialized,
+                        to: whatsappNumber,
+                        from: clientNumber,
+                        body: message,
+                        timestamp: sentMsg.timestamp || Date.now(),
+                        type: sentMsg.type || 'chat',
+                        direction: 'OUTBOUND',
+                    },
+                });
+            } catch (error) {
+                console.error('❌ Error sending bulk message:', error);
+                results.push({ phoneNumber, success: false, message: error.message });
+            }
         }
 
         return { success: true, data: results };
     }
 
+    /**
+     * Disconnect WhatsApp for a client
+     */
     async disconnectWhatsApp(clientId: string) {
         const client = this.clients.get(clientId);
         if (client) {
@@ -167,26 +367,57 @@ export class WhatsAppService {
             this.clients.delete(clientId);
         }
 
-        await this.prisma.whatsAppSession.updateMany({
-            where: { clientId },
-            data: { status: 'disconnected' },
-        });
-
+        await this.updateSession(clientId, 'disconnected');
         return { success: true, message: 'WhatsApp disconnected' };
     }
 
+    /**
+     * Format phone number for WhatsApp Web.js
+     */
+    private formatPhoneNumber(phoneNumber: string): string {
+        let formattedNumber = phoneNumber.replace(/\D/g, '');
+
+        // Handle Bangladesh numbers
+        if (!formattedNumber.startsWith('880') && !formattedNumber.startsWith('1') && !formattedNumber.startsWith('44')) {
+            if (formattedNumber.length === 11 && formattedNumber.startsWith('01')) {
+                formattedNumber = '880' + formattedNumber.substring(1);
+            } else if (formattedNumber.length === 10 && formattedNumber.startsWith('1')) {
+                formattedNumber = '880' + formattedNumber;
+            } else {
+                formattedNumber = '880' + formattedNumber;
+            }
+        }
+
+        return formattedNumber + '@c.us';
+    }
+
+    /**
+     * Handle incoming WhatsApp messages
+     */
     private async handleIncomingMessage(clientId: string, message: Message) {
         try {
-            // Save incoming message to database
+            console.log(`📨 Incoming WhatsApp message for client ${clientId}:`, {
+                from: message.from,
+                body: message.body,
+                timestamp: message.timestamp,
+                messageId: message.id._serialized,
+            });
+
+            // Save message to database
             await this.prisma.message.create({
                 data: {
                     clientId,
-                    message: message.body,
-                    // Add other fields as needed
+                    from: message.from,
+                    to: message.to || null,
+                    body: message.body,
+                    type: message.type,
+                    timestamp: new Date(message.timestamp * 1000),
+                    messageId: message.id._serialized,
+                    direction: 'INBOUND', // (add this if you want to distinguish)
                 },
             });
 
-            // Log the incoming message
+            // Log the message
             await this.prisma.log.create({
                 data: {
                     clientId,
@@ -198,8 +429,264 @@ export class WhatsAppService {
                     }),
                 },
             });
+
+            // Emit to WebSocket
+            this.gateway.sendMessageToClient(clientId, {
+                from: message.from,
+                body: message.body,
+                timestamp: message.timestamp,
+                messageId: message.id._serialized,
+            });
+
+            console.log(`✅ Message processed and emitted for client ${clientId}`);
         } catch (error) {
-            console.error('Error handling incoming message:', error);
+            console.error('❌ Error handling incoming message:', error);
+        }
+    }
+
+    /**
+     * Get active sessions status
+     */
+    async getActiveSessionsStatus() {
+        const activeSessions = await this.prisma.whatsAppSession.findMany({
+            where: { status: 'active' },
+        });
+
+        return {
+            success: true,
+            data: {
+                totalActiveSessions: activeSessions.length,
+                connectedClients: this.clients.size,
+                sessions: activeSessions.map(session => ({
+                    clientId: session.clientId,
+                    status: session.status,
+                    isConnected: this.clients.has(session.clientId),
+                    lastUpdated: session.updated_at,
+                })),
+            },
+        };
+    }
+
+    /**
+ * Get conversations/inbox for a client
+ */
+    async getConversations(clientId: string) {
+        try {
+            // Get all unique phone numbers that have messages (excluding null values)
+            const conversations = await this.prisma.message.groupBy({
+                by: ['from'],
+                where: {
+                    clientId,
+                    from: { not: null } // Exclude null values
+                },
+                _count: {
+                    id: true,
+                },
+                _max: {
+                    timestamp: true,
+                },
+            });
+
+            // Get the latest message for each conversation
+            const conversationsWithLatestMessage = await Promise.all(
+                conversations.map(async (conv) => {
+                    const latestMessage = await this.prisma.message.findFirst({
+                        where: {
+                            clientId,
+                            from: conv.from,
+                        },
+                        orderBy: { timestamp: 'desc' },
+                        select: {
+                            id: true,
+                            body: true,
+                            timestamp: true,
+                            direction: true,
+                            type: true,
+                        },
+                    });
+
+                    return {
+                        phoneNumber: conv.from,
+                        messageCount: conv._count.id,
+                        lastMessage: latestMessage,
+                        lastActivity: conv._max.timestamp,
+                    };
+                })
+            );
+
+            // Sort by last activity (most recent first)
+            conversationsWithLatestMessage.sort((a, b) =>
+                new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime()
+            );
+
+            return {
+                success: true,
+                data: conversationsWithLatestMessage,
+            };
+        } catch (error) {
+            console.error('❌ Error getting conversations:', error);
+            return {
+                success: false,
+                message: error.message,
+            };
+        }
+    }
+
+    /**
+ * Get messages for a specific conversation
+ */
+    async getConversationMessages(
+        clientId: string,
+        phoneNumber: string,
+        limit: number = 50,
+        offset: number = 0
+    ) {
+        console.log("phene", phoneNumber)
+        try {
+            if (!phoneNumber || phoneNumber === '') {
+                return {
+                    success: false,
+                    message: 'Phone number is required',
+                };
+            }
+
+            // Fetch the client's WhatsApp number from the sessionData
+            const session = await this.prisma.whatsAppSession.findFirst({
+                where: { clientId, status: 'active' },
+            });
+            let clientNumber = null;
+            if (session?.sessionData) {
+                try {
+                    const sessionData = JSON.parse(session.sessionData);
+                    clientNumber = sessionData.meNumber || null;
+                } catch (e) {
+                    clientNumber = null;
+                }
+            }
+
+            // Ensure phoneNumber is in WhatsApp format
+            let waPhoneNumber = phoneNumber;
+            if (!waPhoneNumber.endsWith('@c.us')) {
+                waPhoneNumber = waPhoneNumber + '@c.us';
+            }
+
+            const messages = await this.prisma.message.findMany({
+                where: {
+                    clientId,
+                    OR: [
+                        { from: clientNumber, to: waPhoneNumber },
+                        { from: waPhoneNumber, to: clientNumber }
+                    ]
+                },
+                orderBy: { timestamp: 'desc' },
+                take: limit,
+                skip: offset,
+                select: {
+                    id: true,
+                    body: true,
+                    timestamp: true,
+                    direction: true,
+                    type: true,
+                    messageId: true,
+                    from: true,
+                    to: true,
+                },
+            });
+
+            const totalCount = await this.prisma.message.count({
+                where: {
+                    clientId,
+                    OR: [
+                        { from: clientNumber, to: waPhoneNumber },
+                        { from: waPhoneNumber, to: clientNumber }
+                    ]
+                },
+            });
+
+            return {
+                success: true,
+                data: {
+                    messages: messages.reverse(), // Show oldest first
+                    clientNumber, // <-- Now the real WhatsApp number
+                    pagination: {
+                        total: totalCount,
+                        limit,
+                        offset,
+                        hasMore: offset + limit < totalCount,
+                    },
+                },
+            };
+        } catch (error) {
+            console.error('❌ Error getting conversation messages:', error);
+            return {
+                success: false,
+                message: error.message,
+            };
+        }
+    }
+
+    /**
+     * Get inbox summary for a client
+     */
+    async getInbox(clientId: string) {
+        try {
+            const [
+                totalMessages,
+                totalConversations,
+                unreadCount,
+                recentMessages,
+            ] = await Promise.all([
+                // Total messages
+                this.prisma.message.count({
+                    where: { clientId },
+                }),
+                // Total conversations
+                this.prisma.message.groupBy({
+                    by: ['from'],
+                    where: { clientId },
+                    _count: { id: true },
+                }),
+                // Unread messages (you can add a read field to track this)
+                this.prisma.message.count({
+                    where: {
+                        clientId,
+                        // Add read field when implemented
+                        // read: false,
+                    },
+                }),
+                // Recent messages (last 10)
+                this.prisma.message.findMany({
+                    where: { clientId },
+                    orderBy: { timestamp: 'desc' },
+                    take: 10,
+                    select: {
+                        id: true,
+                        body: true,
+                        timestamp: true,
+                        from: true,
+                        direction: true,
+                        type: true,
+                    },
+                }),
+            ]);
+
+            return {
+                success: true,
+                data: {
+                    summary: {
+                        totalMessages,
+                        totalConversations: totalConversations.length,
+                        unreadCount,
+                    },
+                    recentMessages,
+                },
+            };
+        } catch (error) {
+            console.error('❌ Error getting inbox:', error);
+            return {
+                success: false,
+                message: error.message,
+            };
         }
     }
 }

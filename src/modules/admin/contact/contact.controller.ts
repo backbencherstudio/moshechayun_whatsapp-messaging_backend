@@ -19,12 +19,10 @@ import { Role } from '../../../common/guard/role/role.enum';
 import { RolesGuard } from '../../../common/guard/role/roles.guard';
 
 @ApiBearerAuth()
-@ApiTags('Contact')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN)
-@Controller('admin/contact')
+@ApiTags('contact')
+@Controller('contact')
 export class ContactController {
-  constructor(private readonly contactService: ContactService) {}
+  constructor(private readonly contactService: ContactService) { }
 
   @ApiOperation({ summary: 'Create contact' })
   @Post()
