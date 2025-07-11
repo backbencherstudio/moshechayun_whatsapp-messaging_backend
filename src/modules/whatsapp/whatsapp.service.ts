@@ -540,74 +540,69 @@ export class WhatsAppService {
         phoneNumber: string,
         limit: number = 50,
         offset: number = 0
-    ) {
-        console.log("phene", phoneNumber)
+    ): Promise<{ success: boolean; data?: any; message?: string }> {
         try {
-            if (!phoneNumber || phoneNumber === '') {
-                return {
-                    success: false,
-                    message: 'Phone number is required',
-                };
+            if (!phoneNumber) {
+                return { success: false, message: 'Phone number is required' };
             }
 
-            // Fetch the client's WhatsApp number from the sessionData
+            // Format phone/group JID
+            let waJid = phoneNumber;
+            if (!waJid.endsWith('@c.us') && !waJid.endsWith('@g.us')) {
+                waJid = waJid + '@c.us';
+            }
+            const isGroup = waJid.endsWith('@g.us');
+
+            // Get client number
             const session = await this.prisma.whatsAppSession.findFirst({
                 where: { clientId, status: 'active' },
             });
-            let clientNumber = null;
+            let clientNumber: string | null = null;
             if (session?.sessionData) {
                 try {
                     const sessionData = JSON.parse(session.sessionData);
                     clientNumber = sessionData.meNumber || null;
-                } catch (e) {
+                } catch {
                     clientNumber = null;
                 }
             }
 
-            // Ensure phoneNumber is in WhatsApp format
-            let waPhoneNumber = phoneNumber;
-            if (!waPhoneNumber.endsWith('@c.us')) {
-                waPhoneNumber = waPhoneNumber + '@c.us';
-            }
+            // Build query
+            const orCondition = isGroup
+                ? [{ from: waJid }, { to: waJid }]
+                : [
+                    { from: clientNumber, to: waJid },
+                    { from: waJid, to: clientNumber },
+                ];
 
-            const messages = await this.prisma.message.findMany({
-                where: {
-                    clientId,
-                    OR: [
-                        { from: clientNumber, to: waPhoneNumber },
-                        { from: waPhoneNumber, to: clientNumber }
-                    ]
-                },
-                orderBy: { timestamp: 'desc' },
-                take: limit,
-                skip: offset,
-                select: {
-                    id: true,
-                    body: true,
-                    timestamp: true,
-                    direction: true,
-                    type: true,
-                    messageId: true,
-                    from: true,
-                    to: true,
-                },
-            });
-
-            const totalCount = await this.prisma.message.count({
-                where: {
-                    clientId,
-                    OR: [
-                        { from: clientNumber, to: waPhoneNumber },
-                        { from: waPhoneNumber, to: clientNumber }
-                    ]
-                },
-            });
+            // Fetch messages
+            const [messages, totalCount] = await Promise.all([
+                this.prisma.message.findMany({
+                    where: { clientId, OR: orCondition },
+                    orderBy: { timestamp: 'desc' },
+                    take: limit,
+                    skip: offset,
+                    select: {
+                        id: true,
+                        body: true,
+                        timestamp: true,
+                        direction: true,
+                        type: true,
+                        messageId: true,
+                        from: true,
+                        to: true,
+                    },
+                }),
+                this.prisma.message.count({
+                    where: { clientId, OR: orCondition },
+                }),
+            ]);
 
             return {
                 success: true,
                 data: {
-                    messages: messages.reverse(), // Show oldest first
-                    clientNumber, // <-- Now the real WhatsApp number
+                    messages: messages.reverse(),
+                    clientNumber,
                     pagination: {
                         total: totalCount,
                         limit,
@@ -617,11 +612,8 @@ export class WhatsAppService {
                 },
             };
         } catch (error) {
-            console.error('❌ Error getting conversation messages:', error);
-            return {
-                success: false,
-                message: error.message,
-            };
+            // Use a logger here in production
+            return { success: false, message: error.message };
         }
     }
 
