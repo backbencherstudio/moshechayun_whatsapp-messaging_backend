@@ -380,6 +380,7 @@ model Contact {
   name           String?
   email          String?
   phone_number   String?
+  role           String?
   message        String?
   avatar         String?
   client         User           @relation("ClientContacts", fields: [clientId], references: [id], onDelete: Cascade)
@@ -469,13 +470,16 @@ model WhatsAppSession {
 }
 
 model Template {
-  id         String   @id @default(cuid())
-  created_at DateTime @default(now())
-  updated_at DateTime @default(now())
-  client     User     @relation("ClientTemplates", fields: [clientId], references: [id], onDelete: Cascade)
-  clientId   String
-  name       String
-  content    String
+  id           String   @id @default(cuid())
+  created_at   DateTime @default(now())
+  updated_at   DateTime @default(now())
+  client       User     @relation("ClientTemplates", fields: [clientId], references: [id], onDelete: Cascade)
+  clientId     String
+  name         String
+  content      String
+  businessType String
+  category     String?
+  variables    String?
 }
 
 model Webhook {
