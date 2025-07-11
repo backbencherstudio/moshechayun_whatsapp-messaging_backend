@@ -5,7 +5,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 
 @Injectable()
 export class ContactService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) { }
 
   async create(createContactDto: CreateContactDto) {
     try {
@@ -27,7 +27,10 @@ export class ContactService {
       }
 
       await this.prisma.contact.create({
-        data: data,
+        data: {
+          ...data,
+          clientId: createContactDto.clientId || 'default',
+        },
       });
 
       return {

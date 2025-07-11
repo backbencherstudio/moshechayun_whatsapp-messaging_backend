@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WhatsApp Inbox</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 20px; 
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: #25D366;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        .controls {
+            padding: 20px;
+            border-bottom: 1px solid #eee;
+            background: #f9f9f9;
+        }
+        .input-group {
+            margin: 10px 0;
+        }
+        .input-group label {
+            display: inline-block;
+            width: 100px;
+            font-weight: bold;
+        }
+        .input-group input {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            width: 200px;
+        }
+        .btn {
+            background: #25D366;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .btn:hover {
+            background: #128C7E;
+        }
+        .content {
+            display: flex;
+            height: 600px;
+        }
+        .sidebar {
+            width: 300px;
+            border-right: 1px solid #eee;
+            overflow-y: auto;
+        }
+        .conversation {
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+        }
+        .conversation:hover {
+            background: #f5f5f5;
+        }
+        .conversation.active {
+            background: #e3f2fd;
+        }
+        .conversation-header {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .conversation-preview {
+            color: #666;
+            font-size: 14px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .conversation-meta {
+            font-size: 12px;
+            color: #999;
+            margin-top: 5px;
+        }
+        .chat-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        .chat-header {
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+            background: #f9f9f9;
+        }
+        .messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
+        }
+        .message {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 10px;
+            max-width: 70%;
+        }
+        .message.inbound {
+            background: #f1f1f1;
+            align-self: flex-start;
+        }
+        .message.outbound {
+            background: #DCF8C6;
+            align-self: flex-end;
+            margin-left: auto;
+        }
+        .message-time {
+            font-size: 12px;
+            color: #999;
+            margin-top: 5px;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📱 WhatsApp Inbox</h1>
+        </div>
+        
+        <div class="controls">
+            <div class="input-group">
+                <label>Client ID:</label>
+                <input type="text" id="clientId" value="cmcx59ehz0000wsi4wgfl55ak" placeholder="Enter client ID">
+            </div>
+            <button class="btn" onclick="loadInbox()">📥 Load Inbox</button>
+            <button class="btn" onclick="loadConversations()">💬 Load Conversations</button>
+            <button class="btn" onclick="connectWebSocket()">🔌 Connect WebSocket</button>
+        </div>
+
+        <div id="status"></div>
+        
+        <div class="content">
+            <div class="sidebar" id="sidebar">
+                <div class="loading">Click "Load Conversations" to see messages</div>
+            </div>
+            
+            <div class="chat-area">
+                <div class="chat-header" id="chatHeader">
+                    Select a conversation to view messages
+                </div>
+                <div class="messages" id="messages">
+                    <div class="loading">Select a conversation to view messages</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentConversation = null;
+        let socket = null;
+
+        function showStatus(message, type = 'success') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.innerHTML = `<div class="status ${type}">${message}</div>`;
+            setTimeout(() => {
+                statusDiv.innerHTML = '';
+            }, 5000);
+        }
+
+        async function loadInbox() {
+            const clientId = document.getElementById('clientId').value;
+            if (!clientId) {
+                showStatus('Please enter a client ID', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`http://localhost:4000/api/whatsapp/${clientId}/inbox`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    showStatus(`Inbox loaded: ${data.data.summary.totalMessages} messages, ${data.data.summary.totalConversations} conversations`);
+                } else {
+                    showStatus(`Error: ${data.message}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function loadConversations() {
+            const clientId = document.getElementById('clientId').value;
+            if (!clientId) {
+                showStatus('Please enter a client ID', 'error');
+                return;
+            }
+
+            const sidebar = document.getElementById('sidebar');
+            sidebar.innerHTML = '<div class="loading">Loading conversations...</div>';
+
+            try {
+                const response = await fetch(`http://localhost:4000/api/whatsapp/${clientId}/conversations`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    console.log('Conversations data:', data.data);
+                    displayConversations(data.data);
+                    showStatus(`Loaded ${data.data.length} conversations`);
+                } else {
+                    sidebar.innerHTML = `<div class="status error">Error: ${data.message}</div>`;
+                    showStatus(`Error: ${data.message}`, 'error');
+                }
+            } catch (error) {
+                sidebar.innerHTML = `<div class="status error">Error: ${error.message}</div>`;
+                showStatus(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        function displayConversations(conversations) {
+            const sidebar = document.getElementById('sidebar');
+            
+            if (conversations.length === 0) {
+                sidebar.innerHTML = '<div class="loading">No conversations found</div>';
+                return;
+            }
+
+            // Filter out conversations with null phone numbers
+            const validConversations = conversations.filter(conv => conv.phoneNumber);
+            
+            if (validConversations.length === 0) {
+                sidebar.innerHTML = '<div class="loading">No valid conversations found</div>';
+                return;
+            }
+
+            sidebar.innerHTML = validConversations.map(conv => `
+                <div class="conversation" onclick="loadConversationMessages('${conv.phoneNumber}')">
+                    <div class="conversation-header">${formatPhoneNumber(conv.phoneNumber)}</div>
+                    <div class="conversation-preview">${conv.lastMessage?.body || 'No messages'}</div>
+                    <div class="conversation-meta">
+                        ${conv.messageCount} messages • ${formatDate(conv.lastActivity)}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function loadConversationMessages(phoneNumber) {
+            const clientId = document.getElementById('clientId').value;
+            currentConversation = phoneNumber;
+
+            // Update active conversation
+            document.querySelectorAll('.conversation').forEach(conv => {
+                conv.classList.remove('active');
+            });
+            event.target.closest('.conversation').classList.add('active');
+
+            const chatHeader = document.getElementById('chatHeader');
+            const messages = document.getElementById('messages');
+            
+            chatHeader.textContent = `Chat with ${formatPhoneNumber(phoneNumber)}`;
+            messages.innerHTML = '<div class="loading">Loading messages...</div>';
+
+            try {
+                const response = await fetch(`http://localhost:4000/api/whatsapp/${clientId}/conversations/${phoneNumber}/messages?limit=50`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    displayMessages(data.data.messages, data.data.clientNumber);
+                    showStatus(`Loaded ${data.data.messages.length} messages`);
+                } else {
+                    messages.innerHTML = `<div class="status error">Error: ${data.message}</div>`;
+                    showStatus(`Error: ${data.message}`, 'error');
+                }
+            } catch (error) {
+                messages.innerHTML = `<div class="status error">Error: ${error.message}</div>`;
+                showStatus(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        function displayMessages(messages, clientNumber) {
+            const messagesDiv = document.getElementById('messages');
+            if (messages.length === 0) {
+                messagesDiv.innerHTML = '<div class="loading">No messages in this conversation</div>';
+                return;
+            }
+
+            messagesDiv.innerHTML = messages.map(msg => {
+                // Outbound if sent by me, inbound if sent by contact
+                const isOutbound = msg.from === clientNumber;
+                return `
+                    <div class="message ${isOutbound ? 'outbound' : 'inbound'}">
+                        <div>
+                            ${isOutbound ? '<span style=\'color:#25D366;font-weight:bold\'>You:</span> ' : '<span style=\'color:#128C7E;font-weight:bold\'>Contact:</span> '}
+                            ${msg.body}
+                        </div>
+                        <div class="message-time">${formatDate(msg.timestamp)}</div>
+                    </div>
+                `;
+            }).join('');
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function formatPhoneNumber(phoneNumber) {
+            // Handle null/undefined phone numbers
+            if (!phoneNumber) {
+                return 'Unknown Number';
+            }
+            
+            // Remove @c.us suffix and format nicely
+            const clean = phoneNumber.replace('@c.us', '');
+            
+            // Check if it's a valid phone number format
+            if (clean.length === 10) {
+                return clean.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3');
+            } else {
+                return clean; // Return as is if not in expected format
+            }
+        }
+
+        function formatDate(timestamp) {
+            const date = new Date(timestamp);
+            return date.toLocaleString();
+        }
+
+        function connectWebSocket() {
+            const clientId = document.getElementById('clientId').value;
+            if (!clientId) {
+                showStatus('Please enter a client ID', 'error');
+                return;
+            }
+
+            if (socket) {
+                socket.disconnect();
+            }
+
+            socket = io('http://localhost:4000', {
+                query: { clientId: clientId }
+            });
+
+            socket.on('connect', () => {
+                showStatus('✅ Connected to WebSocket');
+                socket.emit('joinWhatsAppRoom', { clientId: clientId });
+            });
+
+            socket.on('new_message', (data) => {
+                showStatus(`📨 New message from ${data.from}: ${data.body}`);
+                
+                // If this is the current conversation, reload messages
+                if (currentConversation === data.from) {
+                    loadConversationMessages(data.from);
+                }
+                
+                // Reload conversations to update preview
+                loadConversations();
+            });
+
+            socket.on('disconnect', () => {
+                showStatus('❌ Disconnected from WebSocket', 'error');
+            });
+
+            socket.on('connect_error', (error) => {
+                showStatus(`❌ WebSocket error: ${error.message}`, 'error');
+            });
+        }
+    </script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+</body>
+</html> 

@@ -300,6 +300,14 @@ model Message {
   contactId String?
   contact   Contact? @relation(fields: [contactId], references: [id])
 
+  from      String?
+  to        String?
+  body      String?
+  type      String?
+  timestamp DateTime?
+  messageId String?   @unique
+  direction String? // 'INBOUND' or 'OUTBOUND'
+
   @@map("messages")
 }
 
@@ -334,7 +342,8 @@ model Conversation {
   participant_id String?
   participant    User?   @relation("participant", fields: [participant_id], references: [id])
 
-  messages Message[]
+  messages      Message[]
+  lastMessageAt DateTime? // For fast inbox queries
 
   client    User     @relation("ClientConversations", fields: [clientId], references: [id], onDelete: Cascade)
   clientId  String
@@ -366,12 +375,14 @@ model Contact {
   updated_at DateTime  @default(now())
   deleted_at DateTime?
 
-  first_name   String?
-  last_name    String?
-  email        String?
-  phone_number String?
-  message      String?
-
+  first_name     String?
+  last_name      String?
+  name           String?
+  email          String?
+  phone_number   String?
+  role           String?
+  message        String?
+  avatar         String?
   client         User           @relation("ClientContacts", fields: [clientId], references: [id], onDelete: Cascade)
   clientId       String
   whatsappNumber String?
@@ -459,13 +470,16 @@ model WhatsAppSession {
 }
 
 model Template {
-  id         String   @id @default(cuid())
-  created_at DateTime @default(now())
-  updated_at DateTime @default(now())
-  client     User     @relation("ClientTemplates", fields: [clientId], references: [id], onDelete: Cascade)
-  clientId   String
-  name       String
-  content    String
+  id           String   @id @default(cuid())
+  created_at   DateTime @default(now())
+  updated_at   DateTime @default(now())
+  client       User     @relation("ClientTemplates", fields: [clientId], references: [id], onDelete: Cascade)
+  clientId     String
+  name         String
+  content      String
+  businessType String
+  category     String?
+  variables    String?
 }
 
 model Webhook {
