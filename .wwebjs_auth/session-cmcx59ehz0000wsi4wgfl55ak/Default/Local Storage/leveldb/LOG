@@ -1,3 +1,15 @@
-2025/07/11-16:32:02.238 5b1c Reusing MANIFEST C:\Users\bdCalling\project\moshechayun_whatsapp-messaging_backend\.wwebjs_auth\session-cmcx59ehz0000wsi4wgfl55ak\Default\Local Storage\leveldb/MANIFEST-000001
-2025/07/11-16:32:02.239 5b1c Recovering log #27
-2025/07/11-16:32:02.240 5b1c Reusing old log C:\Users\bdCalling\project\moshechayun_whatsapp-messaging_backend\.wwebjs_auth\session-cmcx59ehz0000wsi4wgfl55ak\Default\Local Storage\leveldb/000027.log 
+2025/07/12-14:00:20.429 3808 Reusing MANIFEST C:\Users\bdCalling\project\moshechayun_whatsapp-messaging_backend\.wwebjs_auth\session-cmcx59ehz0000wsi4wgfl55ak\Default\Local Storage\leveldb/MANIFEST-000001
+2025/07/12-14:00:20.429 3808 Recovering log #29
+2025/07/12-14:00:20.432 3808 Reusing old log C:\Users\bdCalling\project\moshechayun_whatsapp-messaging_backend\.wwebjs_auth\session-cmcx59ehz0000wsi4wgfl55ak\Default\Local Storage\leveldb/000029.log 
+2025/07/12-14:30:29.159 4418 Level-0 table #33: started
+2025/07/12-14:30:29.164 4418 Level-0 table #33: 16135 bytes OK
+2025/07/12-14:30:29.165 4418 Delete type=0 #29
+2025/07/12-14:30:29.165 4418 Compacting 4@0 + 1@1 files
+2025/07/12-14:30:29.168 4418 Generated table #34@0: 387 keys, 8118 bytes
+2025/07/12-14:30:29.168 4418 Compacted 4@0 + 1@1 files => 8118 bytes
+2025/07/12-14:30:29.169 4418 compacted to: files[ 0 1 1 0 0 0 0 ]
+2025/07/12-14:30:29.169 4418 Delete type=2 #21
+2025/07/12-14:30:29.169 4418 Delete type=2 #23
+2025/07/12-14:30:29.169 4418 Delete type=2 #26
+2025/07/12-14:30:29.169 4418 Delete type=2 #30
+2025/07/12-14:30:29.169 4418 Delete type=2 #33

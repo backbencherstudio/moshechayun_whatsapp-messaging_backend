@@ -4,6 +4,7 @@ import * as qrcode from 'qrcode';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { Inject } from '@nestjs/common';
 import { WhatsAppGateway } from './whatsapp.gateway';
+import { replaceTemplateVariables, validateTemplateVariables } from './utils/template.utils';
 
 @Injectable()
 export class WhatsAppService {
@@ -675,6 +676,183 @@ export class WhatsAppService {
             };
         } catch (error) {
             console.error('❌ Error getting inbox:', error);
+            return {
+                success: false,
+                message: error.message,
+            };
+        }
+    }
+
+    /**
+     * Get all templates for a client
+     */
+    async getTemplates(clientId: string) {
+        try {
+            const templates = await this.prisma.template.findMany({
+                where: { clientId },
+                select: {
+                    id: true,
+                    name: true,
+                    content: true,
+                    businessType: true,
+                    category: true,
+                    variables: true,
+                    created_at: true,
+                    updated_at: true,
+                },
+                orderBy: { created_at: 'desc' },
+            });
+
+            return {
+                success: true,
+                data: templates,
+            };
+        } catch (error) {
+            return {
+                success: false,
+                message: error.message,
+            };
+        }
+    }
+
+    /**
+     * Get a specific template by ID
+     */
+    async getTemplate(templateId: string, clientId: string) {
+        try {
+            const template = await this.prisma.template.findFirst({
+                where: {
+                    id: templateId,
+                    clientId
+                },
+                select: {
+                    id: true,
+                    name: true,
+                    content: true,
+                    businessType: true,
+                    category: true,
+                    variables: true,
+                    created_at: true,
+                    updated_at: true,
+                },
+            });
+
+            if (!template) {
+                return {
+                    success: false,
+                    message: 'Template not found',
+                };
+            }
+
+            return {
+                success: true,
+                data: template,
+            };
+        } catch (error) {
+            return {
+                success: false,
+                message: error.message,
+            };
+        }
+    }
+
+    /**
+     * Send a message using a template
+     */
+    async sendTemplateMessage(
+        clientId: string,
+        phoneNumbers: string[],
+        templateId: string,
+        variables: Record<string, string> = {}
+    ) {
+        try {
+            // Get the template
+            const template = await this.prisma.template.findFirst({
+                where: {
+                    id: templateId,
+                    clientId
+                },
+            });
+
+            if (!template) {
+                return {
+                    success: false,
+                    message: 'Template not found',
+                };
+            }
+
+            // Validate template variables
+            const validation = validateTemplateVariables(template.content, variables);
+            if (!validation.isValid) {
+                return {
+                    success: false,
+                    message: `Missing required variables: ${validation.missingVariables.join(', ')}`,
+                };
+            }
+
+            // Process template content
+            const processedMessage = replaceTemplateVariables(template.content, variables);
+            return {
+                validation,
+                processedMessage
+            }
+            // Send to single or multiple recipients
+            if (phoneNumbers.length === 1) {
+                return this.sendMessage(clientId, phoneNumbers[0], processedMessage);
+            } else {
+                return this.sendBulkMessage(clientId, phoneNumbers, processedMessage);
+            }
+        } catch (error) {
+            return {
+                success: false,
+                message: error.message,
+            };
+        }
+    }
+
+    /**
+     * Preview template with variables (without sending)
+     */
+    async previewTemplate(
+        clientId: string,
+        templateId: string,
+        variables: Record<string, string> = {}
+    ) {
+        try {
+            const template = await this.prisma.template.findFirst({
+                where: {
+                    id: templateId,
+                    clientId
+                },
+            });
+
+            if (!template) {
+                return {
+                    success: false,
+                    message: 'Template not found',
+                };
+            }
+
+            // Validate template variables
+            const validation = validateTemplateVariables(template.content, variables);
+            const processedMessage = replaceTemplateVariables(template.content, variables);
+
+            return {
+                success: true,
+                data: {
+                    originalContent: template.content,
+                    processedContent: processedMessage,
+                    variables: variables,
+                    validation: validation,
+                    template: {
+                        id: template.id,
+                        name: template.name,
+                        businessType: template.businessType,
+                        category: template.category,
+                    },
+                },
+            };
+        } catch (error) {
             return {
                 success: false,
                 message: error.message,

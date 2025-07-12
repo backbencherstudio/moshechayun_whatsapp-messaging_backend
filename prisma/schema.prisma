@@ -383,6 +383,7 @@ model Contact {
   role           String?
   message        String?
   avatar         String?
+  status         Int?           @default(1) @db.SmallInt
   client         User           @relation("ClientContacts", fields: [clientId], references: [id], onDelete: Cascade)
   clientId       String
   whatsappNumber String?

@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Param, Post, UsePipes, ValidationPipe, Q
 import { WhatsAppService } from './whatsapp.service';
 import { ConnectWhatsAppDto } from './dto/connect-whatsapp.dto';
 import { SendMessageDto } from './dto/send-message.dto';
+import { SendTemplateMessageDto } from './dto/send-template-message.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { WhatsAppGateway } from './whatsapp.gateway';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
@@ -21,7 +22,6 @@ export class WhatsAppController {
     return this.whatsAppService.connectWhatsApp(dto.clientId);
   }
 
-
   @Post('send')
   @UsePipes(new ValidationPipe({ whitelist: true }))
   async sendMessage(@Body() dto: SendMessageDto) {
@@ -40,11 +40,55 @@ export class WhatsAppController {
     }
   }
 
+  @Post('send-template')
+  @UsePipes(new ValidationPipe({ whitelist: true }))
+  @ApiOperation({ summary: 'Send message using a template' })
+  @ApiResponse({ status: 200, description: 'Template message sent successfully' })
+  async sendTemplateMessage(@Body() dto: SendTemplateMessageDto) {
+    return this.whatsAppService.sendTemplateMessage(
+      dto.clientId,
+      dto.phoneNumbers,
+      dto.templateId,
+      dto.variables || {}
+    );
+  }
+
+  @Get(':clientId/templates')
+  @ApiOperation({ summary: 'Get all templates for a client' })
+  @ApiResponse({ status: 200, description: 'Templates retrieved successfully' })
+  async getTemplates(@Param('clientId') clientId: string) {
+    return this.whatsAppService.getTemplates(clientId);
+  }
+
+  @Get(':clientId/templates/:templateId')
+  @ApiOperation({ summary: 'Get a specific template' })
+  @ApiResponse({ status: 200, description: 'Template retrieved successfully' })
+  async getTemplate(
+    @Param('clientId') clientId: string,
+    @Param('templateId') templateId: string
+  ) {
+    return this.whatsAppService.getTemplate(templateId, clientId);
+  }
+
+  @Post(':clientId/templates/:templateId/preview')
+  @ApiOperation({ summary: 'Preview template with variables' })
+  @ApiResponse({ status: 200, description: 'Template preview generated' })
+  async previewTemplate(
+    @Param('clientId') clientId: string,
+    @Param('templateId') templateId: string,
+    @Body() body: { variables?: Record<string, string> }
+  ) {
+    return this.whatsAppService.previewTemplate(
+      clientId,
+      templateId,
+      body.variables || {}
+    );
+  }
+
   @Get(':clientId/qr')
   async getQRCode(@Param('clientId') clientId: string) {
     return this.whatsAppService.getQRCode(clientId);
   }
-
 
   @Get(':clientId/status')
   async getStatus(@Param('clientId') clientId: string) {
@@ -93,7 +137,6 @@ export class WhatsAppController {
   async getInbox(@Param('clientId') clientId: string) {
     return this.whatsAppService.getInbox(clientId);
   }
-
 
   @Get('websocket-status')
   async getWebSocketStatus() {
