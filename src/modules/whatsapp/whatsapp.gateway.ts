@@ -11,8 +11,10 @@ import { Server, Socket } from 'socket.io';
 
 @WebSocketGateway({
     cors: {
-        origin: '*'
-    }
+        origin: ['http://localhost:3000', 'http://localhost:8080', 'http://127.0.0.1:5500', 'http://127.0.0.1:3000', '*'],
+        credentials: true
+    },
+    namespace: '/'
 })
 export class WhatsAppGateway implements OnGatewayConnection, OnGatewayDisconnect, OnGatewayInit {
     @WebSocketServer()

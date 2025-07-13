@@ -1,39 +1,19 @@
-2025/07/13-09:20:45.464 1530 Reusing MANIFEST C:\Users\bdCalling\project\moshechayun_whatsapp-messaging_backend\.wwebjs_auth\session-cmcx59ehz0000wsi4wgfl55ak\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
-2025/07/13-09:20:45.465 1530 Recovering log #3531
-2025/07/13-09:20:45.505 1530 Reusing old log C:\Users\bdCalling\project\moshechayun_whatsapp-messaging_backend\.wwebjs_auth\session-cmcx59ehz0000wsi4wgfl55ak\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/003531.log 
-2025/07/13-09:20:47.193 1530 Level-0 table #3547: started
-2025/07/13-09:20:47.201 1530 Level-0 table #3547: 257860 bytes OK
-2025/07/13-09:20:47.202 1530 Delete type=0 #3531
-2025/07/13-09:20:47.203 1530 Manual compaction at level-0 from '\x00\xc7\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00\xc8\x00\x00\x00' @ 0 : 0; will stop at '\x00\xc7\x00\x00\x05' @ 7782976 : 1
-2025/07/13-09:20:47.203 1530 Compacting 1@0 + 1@1 files
-2025/07/13-09:20:47.214 1530 Generated table #3548@0: 6618 keys, 124883 bytes
-2025/07/13-09:20:47.223 1530 Generated table #3549@0: 4702 keys, 133878 bytes
-2025/07/13-09:20:47.223 1530 Compacted 1@0 + 1@1 files => 258761 bytes
-2025/07/13-09:20:47.223 1530 compacted to: files[ 0 2 14 0 0 0 0 ]
-2025/07/13-09:20:47.223 1530 Delete type=2 #3547
-2025/07/13-09:20:47.224 1530 Manual compaction at level-0 from '\x00\xc7\x00\x00\x05' @ 7782976 : 1 .. '\x00\xc8\x00\x00\x00' @ 0 : 0; will stop at (end)
-2025/07/13-09:20:48.546 1270 Compacting 1@1 + 10@2 files
-2025/07/13-09:20:48.620 1270 Generated table #3550@1: 88515 keys, 2240129 bytes
-2025/07/13-09:20:48.698 1270 Generated table #3551@1: 98934 keys, 2251776 bytes
-2025/07/13-09:20:48.758 1270 Generated table #3552@1: 67835 keys, 2239515 bytes
-2025/07/13-09:20:48.822 1270 Generated table #3553@1: 40580 keys, 2202860 bytes
-2025/07/13-09:20:48.850 1270 Generated table #3554@1: 2087 keys, 2149775 bytes
-2025/07/13-09:20:48.873 1270 Generated table #3555@1: 3786 keys, 2159353 bytes
-2025/07/13-09:20:48.898 1270 Generated table #3556@1: 4055 keys, 2160176 bytes
-2025/07/13-09:20:48.947 1270 Generated table #3557@1: 31060 keys, 2249237 bytes
-2025/07/13-09:20:48.994 1270 Generated table #3558@1: 31473 keys, 2218408 bytes
-2025/07/13-09:20:49.027 1270 Generated table #3559@1: 16485 keys, 1807333 bytes
-2025/07/13-09:20:49.027 1270 Compacted 1@1 + 10@2 files => 21678562 bytes
-2025/07/13-09:20:49.028 1270 compacted to: files[ 0 1 14 0 0 0 0 ]
-2025/07/13-09:20:49.029 1270 Delete type=2 #3534
-2025/07/13-09:20:49.029 1270 Delete type=2 #3535
-2025/07/13-09:20:49.029 1270 Delete type=2 #3536
-2025/07/13-09:20:49.029 1270 Delete type=2 #3537
-2025/07/13-09:20:49.029 1270 Delete type=2 #3538
-2025/07/13-09:20:49.029 1270 Delete type=2 #3539
-2025/07/13-09:20:49.029 1270 Delete type=2 #3540
-2025/07/13-09:20:49.029 1270 Delete type=2 #3541
-2025/07/13-09:20:49.030 1270 Delete type=2 #3542
-2025/07/13-09:20:49.030 1270 Delete type=2 #3543
-2025/07/13-09:20:49.030 1270 Delete type=2 #3544
-2025/07/13-09:20:49.030 1270 Delete type=2 #3548
+2025/07/13-15:51:11.214 29b0 Reusing MANIFEST C:\Users\bdCalling\project\moshechayun_whatsapp-messaging_backend\.wwebjs_auth\session-cmcx59ehz0000wsi4wgfl55ak\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
+2025/07/13-15:51:11.215 29b0 Recovering log #4780
+2025/07/13-15:51:11.262 29b0 Reusing old log C:\Users\bdCalling\project\moshechayun_whatsapp-messaging_backend\.wwebjs_auth\session-cmcx59ehz0000wsi4wgfl55ak\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/004780.log 
+2025/07/13-15:51:11.263 29b0 Delete type=2 #4764
+2025/07/13-15:51:11.263 29b0 Delete type=2 #4765
+2025/07/13-15:51:11.263 29b0 Delete type=2 #4766
+2025/07/13-15:51:11.263 29b0 Delete type=2 #4767
+2025/07/13-15:51:11.263 29b0 Delete type=2 #4768
+2025/07/13-15:51:11.275 29b0 Delete type=2 #4783
+2025/07/13-15:51:13.119 1af0 Manual compaction at level-0 from '\x00\xfc\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00\xfd\x00\x00\x00' @ 0 : 0; will stop at (end)
+2025/07/13-15:54:53.927 4bf8 Level-0 table #4797: started
+2025/07/13-15:54:53.948 4bf8 Level-0 table #4797: 1059340 bytes OK
+2025/07/13-15:54:53.950 4bf8 Delete type=0 #4780
+2025/07/13-15:54:53.954 404c Compacting 1@0 + 0@1 files
+2025/07/13-15:54:53.978 404c Generated table #4798@0: 24871 keys, 523118 bytes
+2025/07/13-15:54:53.980 404c Generated table #4799@0: 141 keys, 12935 bytes
+2025/07/13-15:54:53.980 404c Compacted 1@0 + 0@1 files => 536053 bytes
+2025/07/13-15:54:53.981 404c compacted to: files[ 0 2 16 0 0 0 0 ]
+2025/07/13-15:54:53.981 404c Delete type=2 #4797

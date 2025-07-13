@@ -1,157 +1,198 @@
-import { Body, Controller, Delete, Get, Param, Post, UsePipes, ValidationPipe, Query } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
 import { WhatsAppService } from './whatsapp.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../../common/guard/role/roles.guard';
+import { Roles } from '../../common/guard/role/roles.decorator';
+import { Role } from '../../common/guard/role/role.enum';
 import { ConnectWhatsAppDto } from './dto/connect-whatsapp.dto';
 import { SendMessageDto } from './dto/send-message.dto';
+import { SendBulkMessageDto } from './dto/send-bulk-message.dto';
 import { SendTemplateMessageDto } from './dto/send-template-message.dto';
-import { PrismaService } from 'src/prisma/prisma.service';
-import { WhatsAppGateway } from './whatsapp.gateway';
-import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
+import { PreviewTemplateDto } from './dto/preview-template.dto';
+import { GetConversationMessagesDto } from './dto/get-conversation-messages.dto';
+import { GetCreditHistoryDto } from './dto/get-credit-history.dto';
+import { GetAllMessagesDto } from './dto/get-all-messages.dto';
 
-@ApiTags('WhatsApp')
 @Controller('whatsapp')
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class WhatsAppController {
-  constructor(
-    private readonly whatsAppService: WhatsAppService,
-    private readonly prisma: PrismaService,
-    private readonly whatsAppGateway: WhatsAppGateway,
-  ) { }
+  constructor(private readonly whatsappService: WhatsAppService) { }
 
+  // Connection Management
   @Post('connect')
-  @UsePipes(new ValidationPipe({ whitelist: true }))
-  async connect(@Body() dto: ConnectWhatsAppDto) {
-    return this.whatsAppService.connectWhatsApp(dto.clientId);
+  @Roles(Role.CLIENT)
+  async connectWhatsApp(@Body() connectDto: ConnectWhatsAppDto, @Request() req) {
+    const clientId = "cmcx59ehz0000wsi4wgfl55ak";
+    return await this.whatsappService.connectWhatsApp(clientId);
   }
 
+  @Get('qr')
+  @Roles(Role.CLIENT)
+  async getQRCode(@Request() req) {
+    const clientId = "cmcx59ehz0000wsi4wgfl55ak";
+    return await this.whatsappService.getQRCode(clientId);
+  }
+
+  @Get('status')
+  @Roles(Role.CLIENT)
+  async getConnectionStatus(@Request() req) {
+    const clientId = "cmcx59ehz0000wsi4wgfl55ak";
+    return await this.whatsappService.getConnectionStatus(clientId);
+  }
+
+  @Delete('disconnect')
+  @Roles(Role.CLIENT)
+  async disconnectWhatsApp(@Request() req) {
+    const clientId = "cmcx59ehz0000wsi4wgfl55ak";
+    return await this.whatsappService.disconnectWhatsApp(clientId);
+  }
+
+  // Messaging
   @Post('send')
-  @UsePipes(new ValidationPipe({ whitelist: true }))
-  async sendMessage(@Body() dto: SendMessageDto) {
-    if (dto.phoneNumbers.length === 1) {
-      return this.whatsAppService.sendMessage(
-        dto.clientId,
-        dto.phoneNumbers[0],
-        dto.message
-      );
-    } else {
-      return this.whatsAppService.sendBulkMessage(
-        dto.clientId,
-        dto.phoneNumbers,
-        dto.message
-      );
-    }
+  @Roles(Role.CLIENT)
+  async sendMessage(@Body() sendDto: SendMessageDto, @Request() req) {
+    const clientId = "cmcx59ehz0000wsi4wgfl55ak";
+    return await this.whatsappService.sendMessage(clientId, sendDto.phoneNumber, sendDto.message);
   }
 
+  @Post('send-bulk')
+  @Roles(Role.CLIENT)
+  async sendBulkMessage(@Body() bulkDto: SendBulkMessageDto, @Request() req) {
+    const clientId = "cmcx59ehz0000wsi4wgfl55ak";
+    return await this.whatsappService.sendBulkMessage(clientId, bulkDto.phoneNumbers, bulkDto.message);
+  }
+
+  // Template Messaging
   @Post('send-template')
-  @UsePipes(new ValidationPipe({ whitelist: true }))
-  @ApiOperation({ summary: 'Send message using a template' })
-  @ApiResponse({ status: 200, description: 'Template message sent successfully' })
-  async sendTemplateMessage(@Body() dto: SendTemplateMessageDto) {
-    return this.whatsAppService.sendTemplateMessage(
-      dto.clientId,
-      dto.phoneNumbers,
-      dto.templateId,
-      dto.variables || {}
-    );
-  }
-
-  @Get(':clientId/templates')
-  @ApiOperation({ summary: 'Get all templates for a client' })
-  @ApiResponse({ status: 200, description: 'Templates retrieved successfully' })
-  async getTemplates(@Param('clientId') clientId: string) {
-    return this.whatsAppService.getTemplates(clientId);
-  }
-
-  @Get(':clientId/templates/:templateId')
-  @ApiOperation({ summary: 'Get a specific template' })
-  @ApiResponse({ status: 200, description: 'Template retrieved successfully' })
-  async getTemplate(
-    @Param('clientId') clientId: string,
-    @Param('templateId') templateId: string
-  ) {
-    return this.whatsAppService.getTemplate(templateId, clientId);
-  }
-
-  @Post(':clientId/templates/:templateId/preview')
-  @ApiOperation({ summary: 'Preview template with variables' })
-  @ApiResponse({ status: 200, description: 'Template preview generated' })
-  async previewTemplate(
-    @Param('clientId') clientId: string,
-    @Param('templateId') templateId: string,
-    @Body() body: { variables?: Record<string, string> }
-  ) {
-    return this.whatsAppService.previewTemplate(
+  @Roles(Role.CLIENT)
+  async sendTemplateMessage(@Body() templateDto: SendTemplateMessageDto, @Request() req) {
+    const clientId = "cmcx59ehz0000wsi4wgfl55ak";
+    return await this.whatsappService.sendTemplateMessage(
       clientId,
-      templateId,
-      body.variables || {}
+      templateDto.phoneNumbers,
+      templateDto.templateId,
+      templateDto.variables || {}
     );
   }
 
-  @Get(':clientId/qr')
-  async getQRCode(@Param('clientId') clientId: string) {
-    return this.whatsAppService.getQRCode(clientId);
+  @Post('preview-template')
+  @Roles(Role.CLIENT)
+  async previewTemplate(@Body() previewDto: PreviewTemplateDto, @Request() req) {
+    const clientId = "cmcx59ehz0000wsi4wgfl55ak";
+    return await this.whatsappService.previewTemplate(
+      clientId,
+      previewDto.templateId,
+      previewDto.variables || {}
+    );
   }
 
-  @Get(':clientId/status')
-  async getStatus(@Param('clientId') clientId: string) {
-    return this.whatsAppService.getConnectionStatus(clientId);
+  @Get('templates')
+  @Roles(Role.CLIENT)
+  async getTemplates(@Request() req) {
+    const clientId = "cmcx59ehz0000wsi4wgfl55ak";
+    return await this.whatsappService.getTemplates(clientId);
   }
 
-  @ApiOperation({ summary: 'Disconnect WhatsApp for a client' })
-  @ApiResponse({ status: 200, description: 'WhatsApp disconnected' })
-  @Delete(':clientId/disconnect')
-  async disconnect(@Param('clientId') clientId: string) {
-    return this.whatsAppService.disconnectWhatsApp(clientId);
+  @Get('templates/:templateId')
+  @Roles(Role.CLIENT)
+  async getTemplate(@Param('templateId') templateId: string, @Request() req) {
+    const clientId = "cmcx59ehz0000wsi4wgfl55ak";
+    return await this.whatsappService.getTemplate(templateId, clientId);
   }
 
-  @Get(':clientId/messages')
-  async getMessages(@Param('clientId') clientId: string) {
-    const messages = await this.prisma.message.findMany({
-      where: { clientId },
-      orderBy: { timestamp: 'desc' },
-    });
-    return { success: true, data: messages };
+  // Credit Management
+  @Get('credits')
+  @Roles(Role.CLIENT)
+  async getClientCredits(@Request() req) {
+    const clientId = "cmcx59ehz0000wsi4wgfl55ak";
+    return await this.whatsappService.getClientCredits(clientId);
   }
 
-  @Get(':clientId/conversations')
-  async getConversations(@Param('clientId') clientId: string) {
-    return this.whatsAppService.getConversations(clientId);
+  @Get('credits/history')
+  @Roles(Role.CLIENT)
+  async getCreditHistory(@Query() query: GetCreditHistoryDto, @Request() req) {
+    const clientId = "cmcx59ehz0000wsi4wgfl55ak";
+    const limit = query.limit || 50;
+    const offset = query.offset || 0;
+    return await this.whatsappService.getCreditHistory(clientId, limit, offset);
   }
 
-  @Get(':clientId/conversations/:phoneNumber/messages')
-  @ApiQuery({ name: 'limit', required: false, description: 'Number of messages to return' })
-  @ApiQuery({ name: 'offset', required: false, description: 'Number of messages to skip' })
+  // Conversations and Messages
+  @Get('conversations')
+  @Roles(Role.CLIENT)
+  async getConversations(@Request() req) {
+    const clientId = "cmcx59ehz0000wsi4wgfl55ak";
+    return await this.whatsappService.getConversations(clientId);
+  }
+
+  @Get('conversations/:phoneNumber/messages')
+  @Roles(Role.CLIENT)
   async getConversationMessages(
-    @Param('clientId') clientId: string,
     @Param('phoneNumber') phoneNumber: string,
-    @Query('limit') limit?: string,
-    @Query('offset') offset?: string,
+    @Query() query: GetConversationMessagesDto,
+    @Request() req
   ) {
-    return this.whatsAppService.getConversationMessages(
-      clientId,
-      phoneNumber,
-      limit ? parseInt(limit) : 50,
-      offset ? parseInt(offset) : 0
-    );
+    const clientId = "cmcx59ehz0000wsi4wgfl55ak";
+    const limit = query.limit || 50;
+    const offset = query.offset || 0;
+    return await this.whatsappService.getConversationMessages(clientId, phoneNumber, limit, offset);
   }
 
-  @Get(':clientId/inbox')
-  async getInbox(@Param('clientId') clientId: string) {
-    return this.whatsAppService.getInbox(clientId);
+  @Get('inbox')
+  @Roles(Role.CLIENT)
+  async getInbox(@Request() req) {
+    const clientId = "cmcx59ehz0000wsi4wgfl55ak";
+    return await this.whatsappService.getInbox(clientId);
   }
 
-  @Get('websocket-status')
-  async getWebSocketStatus() {
+  @Get('messages')
+  @Roles(Role.CLIENT)
+  async getAllMessages(@Query() query: GetAllMessagesDto, @Request() req) {
+    const clientId = "cmcx59ehz0000wsi4wgfl55ak";
+    const limit = query.limit || 100;
+    const offset = query.offset || 0;
+    return await this.whatsappService.getAllMessages(clientId, limit, offset);
+  }
+
+  // Message Synchronization
+  @Post('sync-messages')
+  @Roles(Role.CLIENT)
+  async syncAllMessages(@Request() req) {
+    const clientId = "cmcx59ehz0000wsi4wgfl55ak";
+    return await this.whatsappService.syncAllMessages(clientId);
+  }
+
+  // Message Management
+  @Get('messages/stats')
+  @Roles(Role.CLIENT)
+  async getMessageStats(@Request() req) {
+    const clientId = "cmcx59ehz0000wsi4wgfl55ak";
+    return await this.whatsappService.getMessageStats(clientId);
+  }
+
+  // Admin endpoints (for system management)
+  @Get('admin/sessions')
+  @Roles(Role.ADMIN)
+  async getActiveSessionsStatus() {
+    return await this.whatsappService.getActiveSessionsStatus();
+  }
+
+  @Post('admin/cleanup')
+  @Roles(Role.ADMIN)
+  async cleanupAllClients() {
+    return await this.whatsappService.cleanupAllClients();
+  }
+
+  // Health check endpoint
+  @Get('health')
+  async healthCheck() {
     return {
       success: true,
-      message: 'WebSocket gateway status',
       data: {
-        connectedClients: this.whatsAppGateway.getConnectedClients(),
-        gatewayActive: true,
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        service: 'WhatsApp Service',
       },
     };
-  }
-
-  @Get('active-sessions')
-  async getActiveSessions() {
-    return this.whatsAppService.getActiveSessionsStatus();
   }
 }

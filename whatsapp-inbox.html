@@ -144,6 +144,20 @@
             padding: 20px;
             color: #666;
         }
+        .connection-status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .connection-status.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+        .connection-status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
     </style>
 </head>
 <body>
@@ -157,12 +171,16 @@
                 <label>Client ID:</label>
                 <input type="text" id="clientId" value="cmcx59ehz0000wsi4wgfl55ak" placeholder="Enter client ID">
             </div>
-            <button class="btn" onclick="loadInbox()">📥 Load Inbox</button>
+            <button class="btn" onclick="getConnectionStatus()">📡 Check Status</button>
+            <button class="btn" onclick="connectWhatsApp()">🔗 Connect WhatsApp</button>
             <button class="btn" onclick="loadConversations()">💬 Load Conversations</button>
+            <button class="btn" onclick="loadInbox()">📥 Load Inbox</button>
             <button class="btn" onclick="connectWebSocket()">🔌 Connect WebSocket</button>
+            <button class="btn" onclick="testWebSocketConnection()">🧪 Test Connection</button>
         </div>
 
         <div id="status"></div>
+        <div id="connectionStatus"></div>
         
         <div class="content">
             <div class="sidebar" id="sidebar">
@@ -192,6 +210,76 @@
             }, 5000);
         }
 
+        function showConnectionStatus(message, isConnected = false) {
+            const statusDiv = document.getElementById('connectionStatus');
+            statusDiv.innerHTML = `<div class="connection-status ${isConnected ? 'connected' : 'disconnected'}">${message}</div>`;
+        }
+
+        async function getConnectionStatus() {
+            const clientId = document.getElementById('clientId').value;
+            if (!clientId) {
+                showStatus('Please enter a client ID', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`http://localhost:4000/api/whatsapp/status`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImpvaG5AZ21haWwuY29tIiwic3ViIjoiY21jeDlkNDh5MDAwMHdzbjA4Y25hdDhqdSIsImlhdCI6MTc1MjM5NjYyNCwiZXhwIjoxNzUyNDgzMDI0fQ.lPaP282bp4iNFMDTOMVkgXTUjRhS9X0k1xbglmc3Stw'
+                    }
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    const status = data.data;
+                    const isConnected = status.connected;
+                    showConnectionStatus(
+                        `Status: ${status.status} | Connected: ${isConnected ? 'Yes' : 'No'} | Client Ready: ${status.clientReady ? 'Yes' : 'No'}`,
+                        isConnected
+                    );
+                    showStatus(`Connection status retrieved successfully`);
+                } else {
+                    showStatus(`Error: ${data.message}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function connectWhatsApp() {
+            const clientId = document.getElementById('clientId').value;
+            if (!clientId) {
+                showStatus('Please enter a client ID', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`http://localhost:4000/api/whatsapp/connect`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImpvaG5AZ21haWwuY29tIiwic3ViIjoiY21jeDlkNDh5MDAwMHdzbjA4Y25hdDhqdSIsImlhdCI6MTc1MjM5NjYyNCwiZXhwIjoxNzUyNDgzMDI0fQ.lPaP282bp4iNFMDTOMVkgXTUjRhS9X0k1xbglmc3Stw'
+                    },
+                    body: JSON.stringify({ clientId: clientId })
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showStatus(`WhatsApp connection initiated: ${data.message}`);
+                    // Check status after a delay
+                    setTimeout(() => {
+                        getConnectionStatus();
+                    }, 2000);
+                } else {
+                    showStatus(`Error: ${data.message}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            }
+        }
+
         async function loadInbox() {
             const clientId = document.getElementById('clientId').value;
             if (!clientId) {
@@ -200,7 +288,13 @@
             }
 
             try {
-                const response = await fetch(`http://localhost:4000/api/whatsapp/${clientId}/inbox`);
+                const response = await fetch(`http://localhost:4000/api/whatsapp/inbox`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImpvaG5AZ21haWwuY29tIiwic3ViIjoiY21jeDlkNDh5MDAwMHdzbjA4Y25hdDhqdSIsImlhdCI6MTc1MjM5NjYyNCwiZXhwIjoxNzUyNDgzMDI0fQ.lPaP282bp4iNFMDTOMVkgXTUjRhS9X0k1xbglmc3Stw'
+                    }
+                });
                 const data = await response.json();
                 
                 if (data.success) {
@@ -224,7 +318,13 @@
             sidebar.innerHTML = '<div class="loading">Loading conversations...</div>';
 
             try {
-                const response = await fetch(`http://localhost:4000/api/whatsapp/${clientId}/conversations`);
+                const response = await fetch(`http://localhost:4000/api/whatsapp/conversations`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImpvaG5AZ21haWwuY29tIiwic3ViIjoiY21jeDlkNDh5MDAwMHdzbjA4Y25hdDhqdSIsImlhdCI6MTc1MjM5NjYyNCwiZXhwIjoxNzUyNDgzMDI0fQ.lPaP282bp4iNFMDTOMVkgXTUjRhS9X0k1xbglmc3Stw'
+                    }
+                });
                 const data = await response.json();
                 
                 if (data.success) {
@@ -285,7 +385,13 @@
             messages.innerHTML = '<div class="loading">Loading messages...</div>';
 
             try {
-                const response = await fetch(`http://localhost:4000/api/whatsapp/${clientId}/conversations/${phoneNumber}/messages?limit=50`);
+                const response = await fetch(`http://localhost:4000/api/whatsapp/conversations/${phoneNumber}/messages?limit=50&offset=0`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImpvaG5AZ21haWwuY29tIiwic3ViIjoiY21jeDlkNDh5MDAwMHdzbjA4Y25hdDhqdSIsImlhdCI6MTc1MjM5NjYyNCwiZXhwIjoxNzUyNDgzMDI0fQ.lPaP282bp4iNFMDTOMVkgXTUjRhS9X0k1xbglmc3Stw'
+                    }
+                });
                 const data = await response.json();
                 
                 if (data.success) {
@@ -309,8 +415,8 @@
             }
 
             messagesDiv.innerHTML = messages.map(msg => {
-                // Outbound if sent by me, inbound if sent by contact
-                const isOutbound = msg.from === clientNumber;
+                // Determine message direction based on the direction field
+                const isOutbound = msg.direction === 'OUTBOUND';
                 return `
                     <div class="message ${isOutbound ? 'outbound' : 'inbound'}">
                         <div>
@@ -353,20 +459,33 @@
                 return;
             }
 
-            if (socket) {
-                socket.disconnect();
-            }
+            // if (socket) {
+            //     socket.disconnect();
+            // }
 
+            // Connect to WebSocket with proper configuration
             socket = io('http://localhost:4000', {
-                query: { clientId: clientId }
+                query: { clientId: clientId },
+                transports: ['websocket', 'polling'],
+                timeout: 20000,
+                forceNew: true
             });
 
             socket.on('connect', () => {
                 showStatus('✅ Connected to WebSocket');
+                console.log('WebSocket connected with ID:', socket.id);
+                
+                // Join the WhatsApp room
                 socket.emit('joinWhatsAppRoom', { clientId: clientId });
             });
 
+            socket.on('joinedWhatsAppRoom', (data) => {
+                showStatus(`✅ Joined WhatsApp room for client: ${data.clientId}`);
+            });
+
+            // Listen for new messages (gateway emits 'new_message')
             socket.on('new_message', (data) => {
+                console.log('Received new message:', data);
                 showStatus(`📨 New message from ${data.from}: ${data.body}`);
                 
                 // If this is the current conversation, reload messages
@@ -378,13 +497,51 @@
                 loadConversations();
             });
 
-            socket.on('disconnect', () => {
-                showStatus('❌ Disconnected from WebSocket', 'error');
+            // Listen for WhatsApp status updates
+            socket.on('whatsapp_status', (data) => {
+                console.log('WhatsApp status update:', data);
+                showStatus(`📱 WhatsApp Status: ${data.status}`);
+                if (data.status === 'connected') {
+                    showConnectionStatus('WhatsApp Connected', true);
+                } else if (data.status === 'disconnected') {
+                    showConnectionStatus('WhatsApp Disconnected', false);
+                }
+            });
+
+            // Listen for general WhatsApp messages
+            socket.on('whatsapp_message', (data) => {
+                console.log('WhatsApp message event:', data);
+                showStatus(`📱 WhatsApp message for client ${data.clientId}`);
+            });
+
+            socket.on('disconnect', (reason) => {
+                console.log('WebSocket disconnected:', reason);
+                showStatus(`❌ Disconnected from WebSocket: ${reason}`, 'error');
             });
 
             socket.on('connect_error', (error) => {
+                console.error('WebSocket connection error:', error);
                 showStatus(`❌ WebSocket error: ${error.message}`, 'error');
             });
+
+            socket.on('error', (error) => {
+                console.error('WebSocket error:', error);
+                showStatus(`❌ WebSocket error: ${error}`, 'error');
+            });
+        }
+
+        // Auto-connect WebSocket on page load
+        window.onload = function() {
+            console.log('Page loaded, attempting WebSocket connection...');
+            setTimeout(() => {
+                connectWebSocket();
+            }, 1000);
+        };
+
+        // Add manual connection button for testing
+        function testWebSocketConnection() {
+            console.log('Testing WebSocket connection...');
+            connectWebSocket();
         }
     </script>
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
