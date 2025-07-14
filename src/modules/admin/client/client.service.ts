@@ -189,6 +189,14 @@ export class ClientService {
     const logs = await this.prisma.creditLog.findMany({
       where: { clientId },
       orderBy: { createdAt: 'desc' },
+      include: {
+        client: {
+          select: {
+            name: true,
+            credits: true
+          }
+        }
+      }
     });
     return { success: true, data: logs };
   }

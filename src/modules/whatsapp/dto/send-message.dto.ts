@@ -1,23 +1,25 @@
-import { IsString, IsArray, IsOptional, IsNotEmpty } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { IsString, IsNotEmpty, IsOptional, IsEnum } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+
+export enum MessageType {
+    TEXT = 'text',
+    IMAGE = 'image',
+    AUDIO = 'audio',
+    VIDEO = 'video',
+    DOCUMENT = 'document',
+    LOCATION = 'location',
+    CONTACT = 'contact',
+    STICKER = 'sticker'
+}
 
 export class SendMessageDto {
     @IsNotEmpty()
     @IsString()
     @ApiProperty({
-        description: 'Client ID for WhatsApp connection',
-        example: 'client123',
+        description: 'Contact ID to send message to (must be a contact of the client)',
+        example: 'clntct123456',
     })
-    clientId: string;
-
-    @IsArray()
-    @IsString({ each: true })
-    @ApiProperty({
-        description: 'Array of phone numbers to send message to',
-        example: ['01712345678', '01812345678'],
-        type: [String],
-    })
-    phoneNumbers: string[];
+    contactId: string;
 
     @IsNotEmpty()
     @IsString()
@@ -28,11 +30,27 @@ export class SendMessageDto {
     message: string;
 
     @IsOptional()
-    @IsString()
-    @ApiProperty({
-        description: 'Message template (optional)',
-        example: 'template_name',
-        required: false,
+    @IsEnum(MessageType)
+    @ApiPropertyOptional({
+        description: 'Type of message to send',
+        enum: MessageType,
+        default: MessageType.TEXT,
     })
-    template?: string;
+    type?: MessageType = MessageType.TEXT;
+
+    @IsOptional()
+    @IsString()
+    @ApiPropertyOptional({
+        description: 'Caption for media messages',
+        example: 'Check out this image!',
+    })
+    caption?: string;
+
+    @IsOptional()
+    @IsString()
+    @ApiPropertyOptional({
+        description: 'Media URL for media messages',
+        example: 'https://example.com/image.jpg',
+    })
+    mediaUrl?: string;
 }
