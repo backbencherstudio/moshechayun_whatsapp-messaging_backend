@@ -1,8 +1,8 @@
-import { IsString, IsNotEmpty } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class ConnectWhatsAppDto {
-    @IsNotEmpty()
+    @IsOptional()
     @IsString()
     @ApiProperty({
         description: 'Client ID for WhatsApp connection',

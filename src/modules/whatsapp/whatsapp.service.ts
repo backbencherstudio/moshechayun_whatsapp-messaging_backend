@@ -5,6 +5,8 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { Inject } from '@nestjs/common';
 import { WhatsAppGateway } from './whatsapp.gateway';
 import { replaceTemplateVariables, validateTemplateVariables } from './utils/template.utils';
+import { MessageHandlerService } from './services/message-handler.service';
+import { MessageType } from './dto/send-message.dto';
 
 @Injectable()
 export class WhatsAppService {
@@ -13,6 +15,7 @@ export class WhatsAppService {
     constructor(
         private prisma: PrismaService,
         @Inject(WhatsAppGateway) private readonly gateway: WhatsAppGateway,
+        private messageHandler: MessageHandlerService,
     ) {
         this.restoreActiveSessions();
         this.startPeriodicAutoSync();
@@ -139,7 +142,7 @@ export class WhatsAppService {
 
         // Message handler
         client.on('message', async (message: Message) => {
-            await this.handleIncomingMessage(clientId, message);
+            await this.messageHandler.handleIncomingMessage(clientId, message);
         });
 
         // Auth failure handler
@@ -210,8 +213,36 @@ export class WhatsAppService {
                 return { success: false, message: 'WhatsApp already connected' };
             }
 
+            // Initialize client and wait for QR code
             await this.initializeClient(clientId);
-            return { success: true, message: 'QR code generated. Please scan to connect.' };
+
+            // Wait for QR code to be generated (max 30 seconds)
+            let attempts = 0;
+            const maxAttempts = 30; // 30 seconds
+
+            while (attempts < maxAttempts) {
+                const session = await this.prisma.whatsAppSession.findFirst({
+                    where: { clientId, status: 'pending' },
+                    orderBy: { created_at: 'desc' },
+                });
+
+                if (session && session.sessionData) {
+                    try {
+                        const sessionData = JSON.parse(session.sessionData);
+                        if (sessionData.qrCode) {
+                            return { success: true, message: 'QR code generated. Please scan to connect.' };
+                        }
+                    } catch (e) {
+                        // Continue waiting if sessionData is invalid
+                    }
+                }
+
+                // Wait 1 second before next attempt
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                attempts++;
+            }
+
+            return { success: false, message: 'QR code generation timeout. Please try again.' };
         } catch (error) {
             return { success: false, message: error.message };
         }
@@ -221,17 +252,49 @@ export class WhatsAppService {
      * Get QR code for a client
      */
     async getQRCode(clientId: string) {
-        const session = await this.prisma.whatsAppSession.findFirst({
-            where: { clientId },
-            orderBy: { created_at: 'desc' },
-        });
+        try {
+            // Get all sessions for this client to debug
+            const allSessions = await this.prisma.whatsAppSession.findMany({
+                where: { clientId },
+                orderBy: { created_at: 'desc' },
+            });
 
-        if (!session || session.status !== 'pending') {
-            return { success: false, message: 'No pending QR code found' };
+            console.log(`🔍 Found ${allSessions.length} sessions for client ${clientId}:`,
+                allSessions.map(s => ({ id: s.id, status: s.status, createdAt: s.created_at })));
+
+            if (allSessions.length === 0) {
+                return { success: false, message: 'No WhatsApp session found. Please connect WhatsApp first.' };
+            }
+
+            // Get the most recent session
+            const session = allSessions[0];
+
+            if (session.status === 'active') {
+                return { success: false, message: 'WhatsApp is already connected. No QR code needed.' };
+            }
+
+            if (session.status === 'disconnected') {
+                return { success: false, message: 'WhatsApp is disconnected. Please connect again to get a new QR code.' };
+            }
+
+            if (session.status !== 'pending') {
+                return { success: false, message: `WhatsApp session status is '${session.status}'. Please try connecting again.` };
+            }
+
+            if (!session.sessionData) {
+                return { success: false, message: 'QR code is being generated. Please wait a moment and try again.' };
+            }
+
+            const sessionData = JSON.parse(session.sessionData);
+            if (!sessionData.qrCode) {
+                return { success: false, message: 'QR code is being generated. Please wait a moment and try again.' };
+            }
+
+            return { success: true, data: { qrCode: sessionData.qrCode } };
+        } catch (error) {
+            console.error(`❌ Error getting QR code for client ${clientId}:`, error);
+            return { success: false, message: `Error retrieving QR code: ${error.message}` };
         }
-
-        const sessionData = JSON.parse(session.sessionData);
-        return { success: true, data: { qrCode: sessionData.qrCode } };
     }
 
     /**
@@ -454,21 +517,12 @@ export class WhatsAppService {
                 }
             }
 
-            // Save the sent message to the Message model
-            await this.prisma.message.create({
-                data: {
-                    clientId,
-                    from: clientNumber, // your WhatsApp number
-                    to: whatsappNumber, // recipient's WhatsApp number
-                    body: message,
-                    type: sentMsg.type || 'chat',
-                    timestamp: sentMsg.timestamp
-                        ? new Date(sentMsg.timestamp * 1000)
-                        : new Date(),
-                    messageId: sentMsg.id?._serialized,
-                    direction: 'OUTBOUND', // distinguish as sent
-                },
-            });
+            // Handle outgoing message through message handler
+            await this.messageHandler.handleOutgoingMessage(clientId, {
+                phoneNumber,
+                message,
+                type: MessageType.TEXT
+            }, sentMsg);
 
             // Clean up old messages to keep only the 20 most recent
             await this.cleanupOldMessages(clientId);
@@ -794,14 +848,31 @@ export class WhatsAppService {
      * Disconnect WhatsApp for a client
      */
     async disconnectWhatsApp(clientId: string) {
-        const client = this.clients.get(clientId);
-        if (client) {
-            await client.destroy();
-            this.clients.delete(clientId);
-        }
+        try {
+            const client = this.clients.get(clientId);
+            if (client) {
+                await client.destroy();
+                this.clients.delete(clientId);
+            }
 
-        await this.updateSession(clientId, 'disconnected');
-        return { success: true, message: 'WhatsApp disconnected' };
+            // Update all sessions for this client to disconnected
+            const whatsapp = await this.prisma.whatsAppSession.updateMany({
+                where: { clientId },
+                data: { status: 'disconnected' }
+            });
+            console.log(whatsapp)
+            // Delete all messages for this client
+            await this.prisma.message.deleteMany({
+                where: { clientId },
+            });
+
+            console.log(`✅ WhatsApp disconnected for client ${clientId} and all sessions updated`);
+
+            return { success: true, message: 'WhatsApp disconnected and all message history cleared.' };
+        } catch (error) {
+            console.error(`❌ Error disconnecting WhatsApp for client ${clientId}:`, error);
+            return { success: false, message: error.message };
+        }
     }
 
     /**
@@ -824,106 +895,7 @@ export class WhatsAppService {
         return formattedNumber + '@c.us';
     }
 
-    /**
-     * Handle incoming WhatsApp messages
-     */
-    private async handleIncomingMessage(clientId: string, message: Message) {
-        try {
-            console.log(`📨 Incoming WhatsApp message for client ${clientId}:`, {
-                from: message.from,
-                body: message.body,
-                timestamp: message.timestamp,
-                messageId: message.id._serialized,
-                type: message.type,
-            });
 
-            // Check if message already exists to avoid duplicates
-            const existingMessage = await this.prisma.message.findFirst({
-                where: {
-                    clientId,
-                    messageId: message.id._serialized,
-                },
-            });
-
-            if (existingMessage) {
-                console.log(`⚠️ Message ${message.id._serialized} already exists, skipping...`);
-                return;
-            }
-
-            // Save message to database with complete information
-            const savedMessage = await this.prisma.message.create({
-                data: {
-                    clientId,
-                    from: message.from,
-                    to: message.to || null,
-                    body: message.body,
-                    type: message.type || 'chat',
-                    timestamp: new Date(message.timestamp * 1000),
-                    messageId: message.id._serialized,
-                    direction: 'INBOUND', // distinguish as received
-                },
-            });
-
-            console.log(`✅ Message saved to database: ${savedMessage.id}`);
-
-            // Clean up old messages to keep only the 20 most recent
-            await this.cleanupOldMessages(clientId);
-
-            // Log the message with complete details
-            await this.prisma.log.create({
-                data: {
-                    clientId,
-                    type: 'message_received',
-                    data: JSON.stringify({
-                        messageId: message.id._serialized,
-                        from: message.from,
-                        to: message.to,
-                        body: message.body,
-                        timestamp: message.timestamp,
-                        type: message.type,
-                        direction: 'INBOUND',
-                        savedMessageId: savedMessage.id,
-                    }),
-                },
-            });
-
-            // Emit to WebSocket with complete message details
-            this.gateway.sendMessageToClient(clientId, {
-                type: 'message_received',
-                messageId: message.id._serialized,
-                from: message.from,
-                to: message.to,
-                body: message.body,
-                timestamp: message.timestamp,
-                messageType: message.type,
-                direction: 'INBOUND',
-                savedMessageId: savedMessage.id,
-            });
-
-            console.log(`✅ Message processed and emitted for client ${clientId}`);
-        } catch (error) {
-            console.error('❌ Error handling incoming message:', error);
-
-            // Log the error
-            await this.prisma.log.create({
-                data: {
-                    clientId,
-                    type: 'message_received_error',
-                    data: JSON.stringify({
-                        error: error.message,
-                        stack: error.stack,
-                        messageData: {
-                            from: message.from,
-                            body: message.body,
-                            timestamp: message.timestamp,
-                            messageId: message.id._serialized,
-                        },
-                        timestamp: new Date().toISOString(),
-                    }),
-                },
-            });
-        }
-    }
 
     /**
      * Clean up old messages to keep only the 20 most recent per client

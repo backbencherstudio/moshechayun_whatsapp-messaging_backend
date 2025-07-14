@@ -169,7 +169,7 @@
         <div class="controls">
             <div class="input-group">
                 <label>Client ID:</label>
-                <input type="text" id="clientId" value="cmcx59ehz0000wsi4wgfl55ak" placeholder="Enter client ID">
+                <input type="text" id="clientId" value="cmcx9d48y0000wsn08cnat8ju" placeholder="Enter client ID">
             </div>
             <button class="btn" onclick="getConnectionStatus()">📡 Check Status</button>
             <button class="btn" onclick="connectWhatsApp()">🔗 Connect WhatsApp</button>
@@ -227,7 +227,7 @@
                     method: 'GET',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImpvaG5AZ21haWwuY29tIiwic3ViIjoiY21jeDlkNDh5MDAwMHdzbjA4Y25hdDhqdSIsImlhdCI6MTc1MjM5NjYyNCwiZXhwIjoxNzUyNDgzMDI0fQ.lPaP282bp4iNFMDTOMVkgXTUjRhS9X0k1xbglmc3Stw'
+                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImpvaG5AZ21haWwuY29tIiwic3ViIjoiY21jeDlkNDh5MDAwMHdzbjA4Y25hdDhqdSIsImlhdCI6MTc1MjQ2NTAxMSwiZXhwIjoxNzUyNTUxNDExfQ.tQmw_ABf5YfcZYx2zZogMHH5JzFwb3WnzqhCndWQlGo'
                     }
                 });
                 const data = await response.json();
@@ -260,7 +260,7 @@
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImpvaG5AZ21haWwuY29tIiwic3ViIjoiY21jeDlkNDh5MDAwMHdzbjA4Y25hdDhqdSIsImlhdCI6MTc1MjM5NjYyNCwiZXhwIjoxNzUyNDgzMDI0fQ.lPaP282bp4iNFMDTOMVkgXTUjRhS9X0k1xbglmc3Stw'
+                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImpvaG5AZ21haWwuY29tIiwic3ViIjoiY21jeDlkNDh5MDAwMHdzbjA4Y25hdDhqdSIsImlhdCI6MTc1MjQ2NTAxMSwiZXhwIjoxNzUyNTUxNDExfQ.tQmw_ABf5YfcZYx2zZogMHH5JzFwb3WnzqhCndWQlGo'
                     },
                     body: JSON.stringify({ clientId: clientId })
                 });
@@ -288,11 +288,11 @@
             }
 
             try {
-                const response = await fetch(`http://localhost:4000/api/whatsapp/inbox`, {
+                const response = await fetch(`http://localhost:4000/api/whatsapp/messages/inbox`, {
                     method: 'GET',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImpvaG5AZ21haWwuY29tIiwic3ViIjoiY21jeDlkNDh5MDAwMHdzbjA4Y25hdDhqdSIsImlhdCI6MTc1MjM5NjYyNCwiZXhwIjoxNzUyNDgzMDI0fQ.lPaP282bp4iNFMDTOMVkgXTUjRhS9X0k1xbglmc3Stw'
+                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImpvaG5AZ21haWwuY29tIiwic3ViIjoiY21jeDlkNDh5MDAwMHdzbjA4Y25hdDhqdSIsImlhdCI6MTc1MjQ2NTAxMSwiZXhwIjoxNzUyNTUxNDExfQ.tQmw_ABf5YfcZYx2zZogMHH5JzFwb3WnzqhCndWQlGo'
                     }
                 });
                 const data = await response.json();
@@ -318,11 +318,11 @@
             sidebar.innerHTML = '<div class="loading">Loading conversations...</div>';
 
             try {
-                const response = await fetch(`http://localhost:4000/api/whatsapp/conversations`, {
+                const response = await fetch(`http://localhost:4000/api/whatsapp/messages/conversations`, {
                     method: 'GET',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImpvaG5AZ21haWwuY29tIiwic3ViIjoiY21jeDlkNDh5MDAwMHdzbjA4Y25hdDhqdSIsImlhdCI6MTc1MjM5NjYyNCwiZXhwIjoxNzUyNDgzMDI0fQ.lPaP282bp4iNFMDTOMVkgXTUjRhS9X0k1xbglmc3Stw'
+                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImpvaG5AZ21haWwuY29tIiwic3ViIjoiY21jeDlkNDh5MDAwMHdzbjA4Y25hdDhqdSIsImlhdCI6MTc1MjQ2NTAxMSwiZXhwIjoxNzUyNTUxNDExfQ.tQmw_ABf5YfcZYx2zZogMHH5JzFwb3WnzqhCndWQlGo'
                     }
                 });
                 const data = await response.json();
@@ -385,11 +385,11 @@
             messages.innerHTML = '<div class="loading">Loading messages...</div>';
 
             try {
-                const response = await fetch(`http://localhost:4000/api/whatsapp/conversations/${phoneNumber}/messages?limit=50&offset=0`, {
+                const response = await fetch(`http://localhost:4000/api/whatsapp/messages/conversations/${phoneNumber}?limit=50&offset=0`, {
                     method: 'GET',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImpvaG5AZ21haWwuY29tIiwic3ViIjoiY21jeDlkNDh5MDAwMHdzbjA4Y25hdDhqdSIsImlhdCI6MTc1MjM5NjYyNCwiZXhwIjoxNzUyNDgzMDI0fQ.lPaP282bp4iNFMDTOMVkgXTUjRhS9X0k1xbglmc3Stw'
+                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImpvaG5AZ21haWwuY29tIiwic3ViIjoiY21jeDlkNDh5MDAwMHdzbjA4Y25hdDhqdSIsImlhdCI6MTc1MjQ2NTAxMSwiZXhwIjoxNzUyNTUxNDExfQ.tQmw_ABf5YfcZYx2zZogMHH5JzFwb3WnzqhCndWQlGo'
                     }
                 });
                 const data = await response.json();
@@ -459,9 +459,9 @@
                 return;
             }
 
-            // if (socket) {
-            //     socket.disconnect();
-            // }
+            if (socket) {
+                socket.disconnect();
+            }
 
             // Connect to WebSocket with proper configuration
             socket = io('http://localhost:4000', {
