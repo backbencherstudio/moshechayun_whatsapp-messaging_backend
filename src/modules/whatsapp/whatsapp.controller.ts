@@ -76,7 +76,7 @@ export class WhatsAppController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async sendMessage(@Body() sendDto: SendMessageDto, @Request() req) {
     const clientId = req.user.userId;
-    return await this.whatsappService.sendMessage(clientId, sendDto.phoneNumber, sendDto.message);
+    return await this.whatsappService.sendMessage(clientId, sendDto.contactId, sendDto.message);
   }
 
   @Post('send-bulk')
@@ -87,7 +87,7 @@ export class WhatsAppController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async sendBulkMessage(@Body() bulkDto: SendBulkMessageDto, @Request() req) {
     const clientId = req.user.userId;
-    return await this.whatsappService.sendBulkMessage(clientId, bulkDto.phoneNumbers, bulkDto.message);
+    return await this.whatsappService.sendBulkMessage(clientId, bulkDto.contactIds, bulkDto.message);
   }
 
   // Template Messaging
@@ -101,7 +101,7 @@ export class WhatsAppController {
     const clientId = req.user.userId;
     return await this.whatsappService.sendTemplateMessage(
       clientId,
-      templateDto.phoneNumbers,
+      templateDto.contactIds,
       templateDto.templateId,
       templateDto.variables || {}
     );

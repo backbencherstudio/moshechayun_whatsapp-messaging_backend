@@ -1,4 +1,5 @@
-import { IsString, IsNotEmpty, IsOptional } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsArray, ValidateIf } from 'class-validator';
+import { Transform } from 'class-transformer';
 
 export class CreateTemplateDto {
     @IsString()
@@ -21,7 +22,8 @@ export class CreateTemplateDto {
     @IsOptional()
     category?: string;
 
-    @IsString()
     @IsOptional()
+    @Transform(({ value }) => Array.isArray(value) ? JSON.stringify(value) : value)
+    @IsString()
     variables?: string;
 }

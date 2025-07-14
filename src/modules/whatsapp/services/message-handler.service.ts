@@ -21,6 +21,12 @@ export class MessageHandlerService {
         try {
             this.logger.log(`📨 Processing incoming message for client ${clientId}: ${message.id._serialized}`);
 
+            // Skip saving if message body is empty or type is 'e2e_notification'
+            if (!message.body || message.type === 'e2e_notification') {
+                this.logger.log(`⏭️ Skipping message ${message.id._serialized} (empty body or system notification)`);
+                return;
+            }
+
             // Check if message already exists to avoid duplicates
             const existingMessage = await this.prisma.message.findFirst({
                 where: {
@@ -102,12 +108,22 @@ export class MessageHandlerService {
                 }
             }
 
+            // Fetch contact by id and clientId
+            const contact = await this.prisma.contact.findFirst({
+                where: { id: sendDto.contactId, clientId },
+            });
+            if (!contact || !contact.phone_number) {
+                this.logger.error(`Contact not found or missing phone number for contactId: ${sendDto.contactId}`);
+                return;
+            }
+            const phoneNumber = contact.phone_number;
+
             // Save sent message to database
             const savedMessage = await this.prisma.message.create({
                 data: {
                     clientId,
                     from: clientNumber,
-                    to: this.formatPhoneNumber(sendDto.phoneNumber),
+                    to: this.formatPhoneNumber(phoneNumber),
                     body: sendDto.message,
                     type: sendDto.type || 'chat',
                     timestamp: sentMessage.timestamp
@@ -125,7 +141,7 @@ export class MessageHandlerService {
                 type: 'message_sent',
                 messageId: sentMessage.id?._serialized,
                 from: clientNumber,
-                to: this.formatPhoneNumber(sendDto.phoneNumber),
+                to: this.formatPhoneNumber(phoneNumber),
                 body: sendDto.message,
                 timestamp: sentMessage.timestamp || Date.now(),
                 messageType: sendDto.type || 'chat',

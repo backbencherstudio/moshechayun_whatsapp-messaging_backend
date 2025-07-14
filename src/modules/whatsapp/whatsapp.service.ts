@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Client, LocalAuth, Message } from 'whatsapp-web.js';
 import * as qrcode from 'qrcode';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -10,7 +10,23 @@ import { MessageType } from './dto/send-message.dto';
 
 @Injectable()
 export class WhatsAppService {
+    private readonly logger = new Logger(WhatsAppService.name);
     private clients = new Map<string, Client>();
+
+    /**
+     * Standard success response
+     */
+    private successResponse<T>(data: T, message?: string) {
+        return { success: true, data, ...(message ? { message } : {}) };
+    }
+
+    /**
+     * Standard error response
+     */
+    private errorResponse(error: any, message?: string) {
+        this.logger.error(message || error?.message || error, error?.stack || error);
+        return { success: false, message: message || error?.message || 'Unknown error' };
+    }
 
     constructor(
         private prisma: PrismaService,
@@ -161,30 +177,54 @@ export class WhatsAppService {
     }
 
     /**
+     * Get the active WhatsApp session for a client
+     */
+    private async getActiveSession(clientId: string) {
+        return this.prisma.whatsAppSession.findFirst({
+            where: { clientId, status: 'active' },
+        });
+    }
+
+    /**
+     * Get the WhatsApp number for a client from sessionData
+     */
+    private async getClientNumber(clientId: string): Promise<string | null> {
+        const session = await this.getActiveSession(clientId);
+        if (session?.sessionData) {
+            try {
+                const sessionData = JSON.parse(session.sessionData);
+                return sessionData.meNumber || null;
+            } catch {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    /**
      * Update session status in database
      */
     private async updateSession(clientId: string, status: string, sessionData?: any) {
-        const existingSession = await this.prisma.whatsAppSession.findFirst({
-            where: { clientId },
-        });
-
-        const updateData: any = { status };
-        if (sessionData) {
-            updateData.sessionData = JSON.stringify(sessionData);
-        }
-
-        if (existingSession) {
-            await this.prisma.whatsAppSession.update({
-                where: { id: existingSession.id },
-                data: updateData,
+        try {
+            const existingSession = await this.prisma.whatsAppSession.findFirst({
+                where: { clientId },
             });
-        } else {
-            await this.prisma.whatsAppSession.create({
-                data: {
-                    clientId,
-                    ...updateData,
-                },
-            });
+            const updateData: any = { status };
+            if (sessionData) {
+                updateData.sessionData = JSON.stringify(sessionData);
+            }
+            if (existingSession) {
+                await this.prisma.whatsAppSession.update({
+                    where: { id: existingSession.id },
+                    data: updateData,
+                });
+            } else {
+                await this.prisma.whatsAppSession.create({
+                    data: { clientId, ...updateData },
+                });
+            }
+        } catch (error) {
+            this.logger.error(`Failed to update session for client ${clientId}: ${error.message}`);
         }
     }
 
@@ -205,46 +245,33 @@ export class WhatsAppService {
      */
     async connectWhatsApp(clientId: string) {
         try {
-            const existingSession = await this.prisma.whatsAppSession.findFirst({
-                where: { clientId, status: 'active' },
-            });
-
+            const existingSession = await this.getActiveSession(clientId);
             if (existingSession) {
-                return { success: false, message: 'WhatsApp already connected' };
+                return this.errorResponse(null, 'WhatsApp already connected');
             }
-
-            // Initialize client and wait for QR code
             await this.initializeClient(clientId);
-
             // Wait for QR code to be generated (max 30 seconds)
             let attempts = 0;
-            const maxAttempts = 30; // 30 seconds
-
+            const maxAttempts = 30;
             while (attempts < maxAttempts) {
                 const session = await this.prisma.whatsAppSession.findFirst({
                     where: { clientId, status: 'pending' },
                     orderBy: { created_at: 'desc' },
                 });
-
                 if (session && session.sessionData) {
                     try {
                         const sessionData = JSON.parse(session.sessionData);
                         if (sessionData.qrCode) {
-                            return { success: true, message: 'QR code generated. Please scan to connect.' };
+                            return this.successResponse(null, 'QR code generated. Please scan to connect.');
                         }
-                    } catch (e) {
-                        // Continue waiting if sessionData is invalid
-                    }
+                    } catch { }
                 }
-
-                // Wait 1 second before next attempt
                 await new Promise(resolve => setTimeout(resolve, 1000));
                 attempts++;
             }
-
-            return { success: false, message: 'QR code generation timeout. Please try again.' };
+            return this.errorResponse(null, 'QR code generation timeout. Please try again.');
         } catch (error) {
-            return { success: false, message: error.message };
+            return this.errorResponse(error);
         }
     }
 
@@ -253,47 +280,34 @@ export class WhatsAppService {
      */
     async getQRCode(clientId: string) {
         try {
-            // Get all sessions for this client to debug
             const allSessions = await this.prisma.whatsAppSession.findMany({
                 where: { clientId },
                 orderBy: { created_at: 'desc' },
             });
-
-            console.log(`🔍 Found ${allSessions.length} sessions for client ${clientId}:`,
-                allSessions.map(s => ({ id: s.id, status: s.status, createdAt: s.created_at })));
-
+            this.logger.log(`Found ${allSessions.length} sessions for client ${clientId}`);
             if (allSessions.length === 0) {
-                return { success: false, message: 'No WhatsApp session found. Please connect WhatsApp first.' };
+                return this.errorResponse(null, 'No WhatsApp session found. Please connect WhatsApp first.');
             }
-
-            // Get the most recent session
             const session = allSessions[0];
-
             if (session.status === 'active') {
-                return { success: false, message: 'WhatsApp is already connected. No QR code needed.' };
+                return this.errorResponse(null, 'WhatsApp is already connected. No QR code needed.');
             }
-
             if (session.status === 'disconnected') {
-                return { success: false, message: 'WhatsApp is disconnected. Please connect again to get a new QR code.' };
+                return this.errorResponse(null, 'WhatsApp is disconnected. Please connect again to get a new QR code.');
             }
-
             if (session.status !== 'pending') {
-                return { success: false, message: `WhatsApp session status is '${session.status}'. Please try connecting again.` };
+                return this.errorResponse(null, `WhatsApp session status is '${session.status}'. Please try connecting again.`);
             }
-
             if (!session.sessionData) {
-                return { success: false, message: 'QR code is being generated. Please wait a moment and try again.' };
+                return this.errorResponse(null, 'QR code is being generated. Please wait a moment and try again.');
             }
-
             const sessionData = JSON.parse(session.sessionData);
             if (!sessionData.qrCode) {
-                return { success: false, message: 'QR code is being generated. Please wait a moment and try again.' };
+                return this.errorResponse(null, 'QR code is being generated. Please wait a moment and try again.');
             }
-
-            return { success: true, data: { qrCode: sessionData.qrCode } };
+            return this.successResponse({ qrCode: sessionData.qrCode });
         } catch (error) {
-            console.error(`❌ Error getting QR code for client ${clientId}:`, error);
-            return { success: false, message: `Error retrieving QR code: ${error.message}` };
+            return this.errorResponse(error, `Error retrieving QR code: ${error.message}`);
         }
     }
 
@@ -325,23 +339,23 @@ export class WhatsAppService {
      * Check and reconnect client if needed
      */
     async checkAndReconnectClient(clientId: string) {
-        const client = this.clients.get(clientId);
-
-        if (!client) {
-            console.log(`🔄 Client ${clientId} not found, initializing...`);
-            await this.initializeClient(clientId);
-            return { success: true, message: 'Client initialized' };
+        try {
+            const client = this.clients.get(clientId);
+            if (!client) {
+                this.logger.log(`Client ${clientId} not found, initializing...`);
+                await this.initializeClient(clientId);
+                return this.successResponse(null, 'Client initialized');
+            }
+            if (!client.info || !client.pupPage) {
+                this.logger.log(`Client ${clientId} not ready, reconnecting...`);
+                this.clients.delete(clientId);
+                await this.initializeClient(clientId);
+                return this.successResponse(null, 'Client reconnected');
+            }
+            return this.successResponse(null, 'Client is healthy');
+        } catch (error) {
+            return this.errorResponse(error);
         }
-
-        // Check if client is healthy
-        if (!client.info || !client.pupPage) {
-            console.log(`🔄 Client ${clientId} not ready, reconnecting...`);
-            this.clients.delete(clientId);
-            await this.initializeClient(clientId);
-            return { success: true, message: 'Client reconnected' };
-        }
-
-        return { success: true, message: 'Client is healthy' };
     }
 
     /**
@@ -407,7 +421,18 @@ export class WhatsAppService {
     /**
      * Send a message to a phone number
      */
-    async sendMessage(clientId: string, phoneNumber: string, message: string) {
+    async sendMessage(clientId: string, contactId: string, message: string) {
+        // Enforce: contactId must be a contact of the client
+        const contact = await this.prisma.contact.findFirst({
+            where: {
+                clientId,
+                id: contactId,
+            },
+        });
+        if (!contact || !contact.phone_number) {
+            return this.errorResponse(null, 'You can only send messages to your own contacts with a valid phone number.');
+        }
+        const phoneNumber = contact.phone_number;
         // First check and reconnect client if needed
         const healthCheck = await this.checkAndReconnectClient(clientId);
         if (!healthCheck.success) {
@@ -519,7 +544,7 @@ export class WhatsAppService {
 
             // Handle outgoing message through message handler
             await this.messageHandler.handleOutgoingMessage(clientId, {
-                phoneNumber,
+                contactId,
                 message,
                 type: MessageType.TEXT
             }, sentMsg);
@@ -592,48 +617,37 @@ export class WhatsAppService {
     /**
      * Send bulk messages to multiple phone numbers
      */
-    async sendBulkMessage(clientId: string, phoneNumbers: string[], message: string) {
+    async sendBulkMessage(clientId: string, contactIds: string[], message: string) {
         // First check and reconnect client if needed
         const healthCheck = await this.checkAndReconnectClient(clientId);
         if (!healthCheck.success) {
             return { success: false, message: 'Failed to connect WhatsApp client', data: [] };
         }
 
-        // Auto-sync messages before sending to ensure we have the latest state
         await this.autoSyncMessages(clientId);
-
         const client = this.clients.get(clientId);
         if (!client) {
             return { success: false, message: 'WhatsApp not connected', data: [] };
         }
-
-        // Check if client is ready
         if (!client.info || !client.pupPage) {
             return { success: false, message: 'WhatsApp client not ready. Please reconnect.', data: [] };
         }
-
-        // Check client credits before sending bulk messages
         const user = await this.prisma.user.findUnique({
             where: { id: clientId },
             select: { id: true, credits: true, name: true, email: true }
         });
-
         if (!user) {
             return { success: false, message: 'Client not found', data: [] };
         }
-
-        const requiredCredits = phoneNumbers.length; // 1 credit per message
+        const requiredCredits = contactIds.length;
         if ((user.credits ?? 0) < requiredCredits) {
             return {
                 success: false,
-                message: `Insufficient credits. You have ${user.credits ?? 0} credits, but ${requiredCredits} credits are required to send ${phoneNumbers.length} messages.`,
+                message: `Insufficient credits. You have ${user.credits ?? 0} credits, but ${requiredCredits} credits are required to send ${contactIds.length} messages.`,
                 data: []
             };
         }
-
         const results = [];
-
-        // Fetch the client's WhatsApp number from the sessionData once
         const session = await this.prisma.whatsAppSession.findFirst({
             where: { clientId, status: 'active' },
         });
@@ -646,93 +660,80 @@ export class WhatsAppService {
                 clientNumber = null;
             }
         }
-
-        console.log(`📤 Sending bulk message to ${phoneNumbers.length} recipients`);
-
         let successfulMessages = 0;
         let failedMessages = 0;
-
-        for (const phoneNumber of phoneNumbers) {
+        for (const contactId of contactIds) {
             try {
+                const contact = await this.prisma.contact.findFirst({
+                    where: { id: contactId, clientId },
+                });
+                if (!contact || !contact.phone_number) {
+                    results.push({
+                        contactId,
+                        success: false,
+                        message: 'Invalid contact or missing phone number'
+                    });
+                    failedMessages++;
+                    continue;
+                }
+                const phoneNumber = contact.phone_number;
                 const whatsappNumber = this.formatPhoneNumber(phoneNumber);
-
-                // Validate the phone number format
                 if (!whatsappNumber.includes('@c.us')) {
                     results.push({
-                        phoneNumber,
+                        contactId,
                         success: false,
                         message: 'Invalid phone number format'
                     });
                     failedMessages++;
                     continue;
                 }
-
-                console.log(`📤 Sending message to ${whatsappNumber}`);
-
-                // Try to get or create chat before sending message
                 let chat;
                 try {
                     chat = await client.getChatById(whatsappNumber);
-                } catch (chatError) {
-                    console.log(`⚠️ Could not get existing chat for ${whatsappNumber}, will create new chat`);
-                    // If chat doesn't exist, we'll try to send message anyway
-                    // WhatsApp Web.js will create the chat automatically
-                }
-
-                // Send the message with retry logic
+                } catch (chatError) { }
                 let sentMsg;
                 let retryCount = 0;
                 const maxRetries = 3;
-
                 while (retryCount < maxRetries) {
                     try {
                         sentMsg = await client.sendMessage(whatsappNumber, message);
-                        break; // Success, exit retry loop
+                        break;
                     } catch (sendError) {
                         retryCount++;
-                        console.log(`⚠️ Send attempt ${retryCount} failed for ${whatsappNumber}:`, sendError.message);
-
                         if (retryCount >= maxRetries) {
                             throw sendError;
                         }
-
-                        // Wait before retry
                         await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
                     }
                 }
-
-                // Save the sent message to the Message model
                 await this.prisma.message.create({
                     data: {
                         clientId,
-                        from: clientNumber, // your WhatsApp number
-                        to: whatsappNumber, // recipient's WhatsApp number
+                        from: clientNumber,
+                        to: whatsappNumber,
                         body: message,
                         type: sentMsg.type || 'chat',
                         timestamp: sentMsg.timestamp
                             ? new Date(sentMsg.timestamp * 1000)
                             : new Date(),
                         messageId: sentMsg.id?._serialized,
-                        direction: 'OUTBOUND', // distinguish as sent
+                        direction: 'OUTBOUND',
                     },
                 });
-
-                // Log the message
                 await this.prisma.log.create({
                     data: {
                         clientId,
                         type: 'message_sent',
                         data: JSON.stringify({
+                            contactId,
                             phoneNumber: whatsappNumber,
-                            originalNumber: phoneNumber,
                             message,
                             retryCount,
                         }),
                     },
                 });
-
                 results.push({
-                    phoneNumber,
+                    contactId,
                     success: true,
                     data: {
                         id: sentMsg.id?._serialized,
@@ -745,62 +746,24 @@ export class WhatsAppService {
                         retryCount,
                     },
                 });
-
                 successfulMessages++;
-
-                // Add a small delay between messages to avoid rate limiting
                 await new Promise(resolve => setTimeout(resolve, 500));
-
             } catch (error) {
-                console.error(`❌ Error sending bulk message to ${phoneNumber}:`, error);
-
-                // Log the error for debugging
-                await this.prisma.log.create({
-                    data: {
-                        clientId,
-                        type: 'bulk_message_error',
-                        data: JSON.stringify({
-                            phoneNumber,
-                            error: error.message,
-                            stack: error.stack,
-                            timestamp: new Date().toISOString(),
-                        }),
-                    },
-                });
-
-                // Return specific error messages
-                let errorMessage = 'Send failed';
-                if (error.message.includes('getChat')) {
-                    errorMessage = 'Failed to access chat. Please try reconnecting WhatsApp.';
-                } else if (error.message.includes('not-authorized')) {
-                    errorMessage = 'WhatsApp session expired. Please scan QR code again.';
-                } else if (error.message.includes('not-found')) {
-                    errorMessage = 'Phone number not found on WhatsApp.';
-                } else {
-                    errorMessage = `Send failed: ${error.message}`;
-                }
-
                 results.push({
-                    phoneNumber,
+                    contactId,
                     success: false,
-                    message: errorMessage
+                    message: error.message
                 });
                 failedMessages++;
             }
         }
-
-        // Clean up old messages after bulk sending
         await this.cleanupOldMessages(clientId);
-
-        // Deduct credits only for successful messages
         if (successfulMessages > 0) {
             const updatedUser = await this.prisma.user.update({
                 where: { id: clientId },
                 data: { credits: { decrement: successfulMessages } },
                 select: { id: true, credits: true, name: true, email: true }
             });
-
-            // Log credit deduction
             await this.prisma.creditLog.create({
                 data: {
                     clientId,
@@ -809,8 +772,6 @@ export class WhatsAppService {
                     description: `Credits deducted for sending ${successfulMessages} messages in bulk operation`,
                 },
             });
-
-            // Add credit information to results
             results.forEach(result => {
                 if (result.success && result.data) {
                     result.data.creditsUsed = 1;
@@ -818,22 +779,17 @@ export class WhatsAppService {
                 }
             });
         }
-
-        // Calculate summary statistics
         const successful = results.filter(r => r.success).length;
         const failed = results.filter(r => !r.success).length;
-
-        console.log(`📊 Bulk message summary: ${successful} successful, ${failed} failed`);
-
         return {
             success: true,
             data: {
                 results,
                 summary: {
-                    total: phoneNumbers.length,
+                    total: contactIds.length,
                     successful,
                     failed,
-                    successRate: (successful / phoneNumbers.length) * 100,
+                    successRate: (successful / contactIds.length) * 100,
                     creditsUsed: successfulMessages,
                     creditsRemaining: successfulMessages > 0 ? (await this.prisma.user.findUnique({
                         where: { id: clientId },
@@ -854,24 +810,15 @@ export class WhatsAppService {
                 await client.destroy();
                 this.clients.delete(clientId);
             }
-
-            // Update all sessions for this client to disconnected
-            const whatsapp = await this.prisma.whatsAppSession.updateMany({
+            await this.prisma.whatsAppSession.updateMany({
                 where: { clientId },
                 data: { status: 'disconnected' }
             });
-            console.log(whatsapp)
-            // Delete all messages for this client
-            await this.prisma.message.deleteMany({
-                where: { clientId },
-            });
-
-            console.log(`✅ WhatsApp disconnected for client ${clientId} and all sessions updated`);
-
-            return { success: true, message: 'WhatsApp disconnected and all message history cleared.' };
+            await this.prisma.message.deleteMany({ where: { clientId } });
+            this.logger.log(`WhatsApp disconnected for client ${clientId} and all sessions updated`);
+            return this.successResponse(null, 'WhatsApp disconnected and all message history cleared.');
         } catch (error) {
-            console.error(`❌ Error disconnecting WhatsApp for client ${clientId}:`, error);
-            return { success: false, message: error.message };
+            return this.errorResponse(error);
         }
     }
 
@@ -1079,31 +1026,24 @@ export class WhatsAppService {
  */
     async getConversations(clientId: string) {
         try {
-            // Auto-sync messages before getting conversations to ensure we have the latest data
             await this.autoSyncMessages(clientId);
-
-            // Get all unique phone numbers that have messages (excluding null values)
             const conversations = await this.prisma.message.groupBy({
                 by: ['from'],
                 where: {
                     clientId,
-                    from: { not: null } // Exclude null values
+                    from: { not: null }
                 },
-                _count: {
-                    id: true,
-                },
-                _max: {
-                    timestamp: true,
-                },
+                _count: { id: true },
+                _max: { timestamp: true },
             });
-
-            // Get the latest message for each conversation
             const conversationsWithLatestMessage = await Promise.all(
                 conversations.map(async (conv) => {
                     const latestMessage = await this.prisma.message.findFirst({
                         where: {
                             clientId,
                             from: conv.from,
+                            body: { not: '' },
+                            type: 'chat',
                         },
                         orderBy: { timestamp: 'desc' },
                         select: {
@@ -1114,30 +1054,40 @@ export class WhatsAppService {
                             type: true,
                         },
                     });
+                    // Extract phone number (remove '@c.us' if present)
+                    const phoneNumber = conv.from?.replace(/@c\.us$/, '');
+                    // Lookup user by phone_number
+
+                    let user = null;
+                    if (phoneNumber) {
+                        user = await this.prisma.contact.findFirst({
+                            where: { phone_number: phoneNumber },
+                            select: { name: true, avatar: true },
+                        });
+                    }
 
                     return {
                         phoneNumber: conv.from,
                         messageCount: conv._count.id,
                         lastMessage: latestMessage,
                         lastActivity: conv._max.timestamp,
+                        name: user?.name || null,
+                        avatar: user?.avatar || null,
                     };
                 })
             );
-
-            // Sort by last activity (most recent first) - WhatsApp-like ordering
             conversationsWithLatestMessage.sort((a, b) => {
                 if (!a.lastActivity && !b.lastActivity) return 0;
                 if (!a.lastActivity) return 1;
                 if (!b.lastActivity) return -1;
                 return new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime();
             });
-
             return {
                 success: true,
                 data: conversationsWithLatestMessage,
             };
         } catch (error) {
-            console.error('❌ Error getting conversations:', error);
+            this.logger.error('❌ Error getting conversations:', error);
             return {
                 success: false,
                 message: error.message,
@@ -1243,37 +1193,32 @@ export class WhatsAppService {
      */
     async getInbox(clientId: string) {
         try {
-            // Auto-sync messages before getting inbox to ensure we have the latest data
             await this.autoSyncMessages(clientId);
-
             const [
                 totalMessages,
                 totalConversations,
                 unreadCount,
                 recentMessages,
             ] = await Promise.all([
-                // Total messages
                 this.prisma.message.count({
-                    where: { clientId },
+                    where: { clientId, body: { not: '' }, type: 'chat' },
                 }),
-                // Total conversations
                 this.prisma.message.groupBy({
                     by: ['from'],
-                    where: { clientId },
+                    where: { clientId, body: { not: '' }, type: 'chat' },
                     _count: { id: true },
                 }),
-                // Unread messages (you can add a read field to track this)
                 this.prisma.message.count({
                     where: {
                         clientId,
-                        // Add read field when implemented
-                        // read: false,
+                        body: { not: '' },
+                        type: 'chat',
+                        // read: false, // Uncomment if you add a read field
                     },
                 }),
-                // Recent messages (last 10) - most recent first
                 this.prisma.message.findMany({
-                    where: { clientId },
-                    orderBy: { timestamp: 'desc' }, // Most recent first
+                    where: { clientId, body: { not: '' }, type: 'chat' },
+                    orderBy: { timestamp: 'desc' },
                     take: 10,
                     select: {
                         id: true,
@@ -1285,7 +1230,6 @@ export class WhatsAppService {
                     },
                 }),
             ]);
-
             return {
                 success: true,
                 data: {
@@ -1294,7 +1238,7 @@ export class WhatsAppService {
                         totalConversations: totalConversations.length,
                         unreadCount,
                     },
-                    recentMessages, // Already in correct order (most recent first)
+                    recentMessages,
                 },
             };
         } catch (error) {
@@ -1384,54 +1328,42 @@ export class WhatsAppService {
      */
     async sendTemplateMessage(
         clientId: string,
-        phoneNumbers: string[],
+        contactIds: string[],
         templateId: string,
         variables: Record<string, string> = {}
     ) {
         try {
-            // First check and reconnect client if needed
             const healthCheck = await this.checkAndReconnectClient(clientId);
             if (!healthCheck.success) {
                 return { success: false, message: 'Failed to connect WhatsApp client' };
             }
-
-            // Auto-sync messages before sending to ensure we have the latest state
             await this.autoSyncMessages(clientId);
-
-            // Check client credits before processing template
             const user = await this.prisma.user.findUnique({
                 where: { id: clientId },
                 select: { id: true, credits: true, name: true, email: true }
             });
-
             if (!user) {
                 return { success: false, message: 'Client not found' };
             }
-
-            const requiredCredits = phoneNumbers.length; // 1 credit per message
+            const requiredCredits = contactIds.length;
             if ((user.credits ?? 0) < requiredCredits) {
                 return {
                     success: false,
-                    message: `Insufficient credits. You have ${user.credits ?? 0} credits, but ${requiredCredits} credits are required to send ${phoneNumbers.length} template messages.`
+                    message: `Insufficient credits. You have ${user.credits ?? 0} credits, but ${requiredCredits} credits are required to send ${contactIds.length} template messages.`
                 };
             }
-
-            // Get the template
             const template = await this.prisma.template.findFirst({
                 where: {
                     id: templateId,
                     clientId
                 },
             });
-
             if (!template) {
                 return {
                     success: false,
                     message: 'Template not found',
                 };
             }
-
-            // Validate template variables
             const validation = validateTemplateVariables(template.content, variables);
             if (!validation.isValid) {
                 return {
@@ -1439,14 +1371,7 @@ export class WhatsAppService {
                     message: `Missing required variables: ${validation.missingVariables.join(', ')}`,
                 };
             }
-
-            // Process template content
             const processedMessage = replaceTemplateVariables(template.content, variables);
-
-            console.log(`📤 Sending template message using template: ${template.name}`);
-            console.log(`📝 Processed message: ${processedMessage.substring(0, 100)}...`);
-
-            // Log template usage
             await this.prisma.log.create({
                 data: {
                     clientId,
@@ -1454,69 +1379,39 @@ export class WhatsAppService {
                     data: JSON.stringify({
                         templateId,
                         templateName: template.name,
-                        phoneNumbers,
+                        contactIds,
                         variables,
-                        processedMessage: processedMessage.substring(0, 500), // Limit log size
-                        recipientCount: phoneNumbers.length,
+                        processedMessage: processedMessage.substring(0, 500),
+                        recipientCount: contactIds.length,
                         creditsRequired: requiredCredits,
                         availableCredits: user.credits,
                     }),
                 },
             });
-
-            // Send to single or multiple recipients
-            if (phoneNumbers.length === 1) {
-                const result = await this.sendMessage(clientId, phoneNumbers[0], processedMessage);
-
-                // Add template information to the result if successful
-                if (result.success && 'data' in result) {
-                    (result as any).data = {
-                        ...(result as any).data,
-                        template: {
-                            id: template.id,
-                            name: template.name,
-                            businessType: template.businessType,
-                            category: template.category,
-                        },
-                        variables,
-                        originalContent: template.content,
-                        processedContent: processedMessage,
-                    };
-                }
-
-                return result;
-            } else {
-                const result = await this.sendBulkMessage(clientId, phoneNumbers, processedMessage);
-
-                // Add template information to the result if successful
-                if (result.success && 'data' in result) {
-                    (result as any).data = {
-                        ...(result as any).data,
-                        template: {
-                            id: template.id,
-                            name: template.name,
-                            businessType: template.businessType,
-                            category: template.category,
-                        },
-                        variables,
-                        originalContent: template.content,
-                        processedContent: processedMessage,
-                    };
-                }
-
-                return result;
+            const result = await this.sendBulkMessage(clientId, contactIds, processedMessage);
+            if (result.success && 'data' in result) {
+                (result as any).data = {
+                    ...(result as any).data,
+                    template: {
+                        id: template.id,
+                        name: template.name,
+                        businessType: template.businessType,
+                        category: template.category,
+                    },
+                    variables,
+                    originalContent: template.content,
+                    processedContent: processedMessage,
+                };
             }
+            return result;
         } catch (error) {
-            console.error('❌ Error sending template message:', error);
-
-            // Log the error for debugging
             await this.prisma.log.create({
                 data: {
                     clientId,
                     type: 'template_message_error',
                     data: JSON.stringify({
                         templateId,
-                        phoneNumbers,
+                        contactIds,
                         variables,
                         error: error.message,
                         stack: error.stack,
@@ -1524,7 +1419,6 @@ export class WhatsAppService {
                     }),
                 },
             });
-
             return {
                 success: false,
                 message: `Template message failed: ${error.message}`,
@@ -1783,7 +1677,7 @@ export class WhatsAppService {
         try {
             const [messages, totalCount] = await Promise.all([
                 this.prisma.message.findMany({
-                    where: { clientId },
+                    where: { clientId, body: { not: '' }, type: 'chat' },
                     orderBy: { timestamp: 'desc' }, // Most recent first
                     take: limit,
                     skip: offset,
@@ -1799,7 +1693,7 @@ export class WhatsAppService {
                     },
                 }),
                 this.prisma.message.count({
-                    where: { clientId },
+                    where: { clientId, body: { not: '' }, type: 'chat' },
                 }),
             ]);
 

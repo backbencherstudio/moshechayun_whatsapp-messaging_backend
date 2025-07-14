@@ -5,11 +5,11 @@ export class SendBulkMessageDto {
     @IsArray()
     @IsString({ each: true })
     @ApiProperty({
-        description: 'Array of phone numbers to send message to',
-        example: ['01712345678', '01812345678'],
+        description: 'Array of contact IDs to send message to',
+        example: ['clntct123456', 'clntct654321'],
         type: [String],
     })
-    phoneNumbers: string[];
+    contactIds: string[];
 
     @IsNotEmpty()
     @IsString()
