@@ -81,6 +81,7 @@ export class ClientService {
         credits: true,
         status: true,
         avatar: true,
+        contacts: true
       },
     });
     if (!client) return { success: false, message: 'Client not found' };

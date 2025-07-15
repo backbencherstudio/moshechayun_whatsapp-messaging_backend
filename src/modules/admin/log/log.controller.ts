@@ -1,4 +1,4 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query } from '@nestjs/common';
 import { LogService } from './log.service';
 import { GetLogDto } from './dto/get-log.dto';
 
@@ -9,5 +9,10 @@ export class LogController {
   @Get()
   findAll(@Query() query: GetLogDto) {
     return this.logService.findAll(query);
+  }
+
+  @Get()
+  findOne(@Param() id: string) {
+    return this.logService.findOne(id);
   }
 }

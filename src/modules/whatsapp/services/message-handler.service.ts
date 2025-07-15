@@ -4,6 +4,9 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { WhatsAppGateway } from '../whatsapp.gateway';
 import { ReceiveMessageDto, MessageDirection, MessageStatus } from '../dto/receive-message.dto';
 import { SendMessageDto, MessageType } from '../dto/send-message.dto';
+import { SojebStorage } from 'src/common/lib/Disk/SojebStorage';
+import appConfig from 'src/config/app.config';
+import { StringHelper } from 'src/common/helper/string.helper';
 
 @Injectable()
 export class MessageHandlerService {
@@ -17,14 +20,14 @@ export class MessageHandlerService {
     /**
      * Handle incoming WhatsApp messages
      */
-    async handleIncomingMessage(clientId: string, message: Message): Promise<void> {
+    async handleIncomingMessage(clientId: string, message: Message): Promise<any> { // changed from void to any
         try {
             this.logger.log(`📨 Processing incoming message for client ${clientId}: ${message.id._serialized}`);
 
             // Skip saving if message body is empty or type is 'e2e_notification'
             if (!message.body || message.type === 'e2e_notification') {
                 this.logger.log(`⏭️ Skipping message ${message.id._serialized} (empty body or system notification)`);
-                return;
+                return { success: false, skipped: true, reason: 'Empty body or system notification' };
             }
 
             // Check if message already exists to avoid duplicates
@@ -37,11 +40,32 @@ export class MessageHandlerService {
 
             if (existingMessage) {
                 this.logger.log(`⚠️ Message ${message.id._serialized} already exists, skipping...`);
-                return;
+                return { success: false, skipped: true, reason: 'Duplicate message', savedMessageId: existingMessage.id };
             }
 
             // Extract message data
             const messageData = await this.extractMessageData(message);
+
+            // If media, store file and create attachment
+            let attachmentId = null;
+            let fileUrl = null;
+            if (messageData.mediaUrl) {
+                // Download and store the media file
+                const buffer = Buffer.from(messageData.mediaUrl.split(',')[1], 'base64');
+                const fileName = StringHelper.generateRandomFileName(message.id._serialized);
+                const storagePath = appConfig().storageUrl.attachment + fileName;
+                fileUrl = await SojebStorage.put(storagePath, buffer);
+                const attachment = await this.prisma.attachment.create({
+                    data: {
+                        name: fileName,
+                        type: messageData.mimeType || 'application/octet-stream',
+                        size: buffer.length,
+                        file: fileName,
+                        file_alt: '',
+                    },
+                });
+                attachmentId = attachment.id;
+            }
 
             // Save message to database
             const savedMessage = await this.prisma.message.create({
@@ -54,6 +78,7 @@ export class MessageHandlerService {
                     timestamp: new Date(message.timestamp * 1000),
                     messageId: message.id._serialized,
                     direction: 'INBOUND',
+                    attachment_id: attachmentId || undefined,
                 },
             });
 
@@ -74,12 +99,23 @@ export class MessageHandlerService {
                 direction: 'INBOUND',
                 savedMessageId: savedMessage.id,
                 ...messageData,
+                fileUrl,
+                attachmentId,
             });
 
             this.logger.log(`✅ Message processed and emitted for client ${clientId}`);
+            return {
+                success: true,
+                messageId: message.id._serialized,
+                savedMessageId: savedMessage.id,
+                type: message.type,
+                fileUrl,
+                attachmentId,
+            };
         } catch (error) {
             this.logger.error(`❌ Error handling incoming message:`, error);
             await this.logError(clientId, 'message_received_error', error, { message });
+            return { success: false, message: error.message };
         }
     }
 
@@ -87,13 +123,104 @@ export class MessageHandlerService {
      * Handle outgoing messages
      */
     async handleOutgoingMessage(
-        clientId: string,
-        sendDto: SendMessageDto,
-        sentMessage: any
-    ): Promise<void> {
+        clientIdOrPayload: any,
+        sendDto?: any,
+        sentMessage?: any
+    ): Promise<any> { // changed from void to any
+        // If called with a single object (file/media message)
+        if (arguments.length === 1 && typeof clientIdOrPayload === 'object' && clientIdOrPayload.media) {
+            const payload = clientIdOrPayload;
+            try {
+                this.logger.log(`📤 Processing outgoing file/media message for client ${payload.clientId}`);
+                // Get client number from session
+                const session = await this.prisma.whatsAppSession.findFirst({
+                    where: { clientId: payload.clientId, status: 'active' },
+                });
+                let clientNumber = null;
+                if (session?.sessionData) {
+                    try {
+                        const sessionData = JSON.parse(session.sessionData);
+                        clientNumber = sessionData.meNumber || null;
+                    } catch (e) {
+                        clientNumber = null;
+                    }
+                }
+                // Fetch contact by id and clientId
+                const contact = await this.prisma.contact.findFirst({
+                    where: { id: payload.contactId, clientId: payload.clientId },
+                });
+                if (!contact || !contact.phone_number) {
+                    this.logger.error(`Contact not found or missing phone number for contactId: ${payload.contactId}`);
+                    return { success: false, message: 'Contact not found or missing phone number' };
+                }
+                const phoneNumber = contact.phone_number;
+                // Store file using SojebStorage and create Attachment
+                const file = payload.media;
+                const fileName = StringHelper.generateRandomFileName(file.originalname);
+                const storagePath = appConfig().storageUrl.attachment + fileName;
+                const fileUrl = await SojebStorage.put(storagePath, file.buffer);
+                const attachment = await this.prisma.attachment.create({
+                    data: {
+                        name: fileName,
+                        type: file.mimetype,
+                        size: file.size,
+                        file: fileName,
+                        file_alt: '',
+                    },
+                });
+                // Save sent message to database
+                const savedMessage = await this.prisma.message.create({
+                    data: {
+                        clientId: payload.clientId,
+                        from: clientNumber,
+                        to: this.formatPhoneNumber(phoneNumber),
+                        body: payload.caption || '',
+                        type: 'media',
+                        timestamp: payload.sentMsg?.timestamp ? new Date(payload.sentMsg.timestamp * 1000) : new Date(),
+                        messageId: payload.sentMsg?.id?._serialized,
+                        direction: 'OUTBOUND',
+                        attachment_id: attachment.id,
+                    },
+                });
+                this.logger.log(`✅ Outgoing file/media message saved to database: ${savedMessage.id}`);
+                // Emit to WebSocket
+                this.emitMessageToClient(payload.clientId, {
+                    type: 'message_sent',
+                    messageId: payload.sentMsg?.id?._serialized,
+                    from: clientNumber,
+                    to: this.formatPhoneNumber(phoneNumber),
+                    body: payload.caption || '',
+                    timestamp: payload.sentMsg?.timestamp || Date.now(),
+                    messageType: 'media',
+                    direction: 'OUTBOUND',
+                    savedMessageId: savedMessage.id,
+                    media: {
+                        filename: file.originalname,
+                        mimetype: file.mimetype,
+                        size: file.size,
+                        url: SojebStorage.url(appConfig().storageUrl.attachment + fileName),
+                        attachmentId: attachment.id,
+                    },
+                    caption: payload.caption,
+                });
+                this.logger.log(`✅ Outgoing file/media message processed and emitted for client ${payload.clientId}`);
+                return {
+                    success: true,
+                    messageId: payload.sentMsg?.id?._serialized,
+                    savedMessageId: savedMessage.id,
+                    attachmentId: attachment.id,
+                    fileUrl,
+                };
+            } catch (error) {
+                this.logger.error(`❌ Error handling outgoing file/media message:`, error);
+                await this.logError(payload.clientId, 'message_sent_error', error, { payload });
+                return { success: false, message: error.message };
+            }
+        }
+        // Else, treat as text message (legacy signature)
+        const clientId = clientIdOrPayload;
         try {
             this.logger.log(`📤 Processing outgoing message for client ${clientId}`);
-
             // Get client number from session
             const session = await this.prisma.whatsAppSession.findFirst({
                 where: { clientId, status: 'active' },
@@ -107,17 +234,15 @@ export class MessageHandlerService {
                     clientNumber = null;
                 }
             }
-
             // Fetch contact by id and clientId
             const contact = await this.prisma.contact.findFirst({
                 where: { id: sendDto.contactId, clientId },
             });
             if (!contact || !contact.phone_number) {
                 this.logger.error(`Contact not found or missing phone number for contactId: ${sendDto.contactId}`);
-                return;
+                return { success: false, message: 'Contact not found or missing phone number' };
             }
             const phoneNumber = contact.phone_number;
-
             // Save sent message to database
             const savedMessage = await this.prisma.message.create({
                 data: {
@@ -126,33 +251,34 @@ export class MessageHandlerService {
                     to: this.formatPhoneNumber(phoneNumber),
                     body: sendDto.message,
                     type: sendDto.type || 'chat',
-                    timestamp: sentMessage.timestamp
-                        ? new Date(sentMessage.timestamp * 1000)
-                        : new Date(),
-                    messageId: sentMessage.id?._serialized,
+                    timestamp: sentMessage?.timestamp ? new Date(sentMessage.timestamp * 1000) : new Date(),
+                    messageId: sentMessage?.id?._serialized,
                     direction: 'OUTBOUND',
                 },
             });
-
             this.logger.log(`✅ Outgoing message saved to database: ${savedMessage.id}`);
-
             // Emit to WebSocket
             this.emitMessageToClient(clientId, {
                 type: 'message_sent',
-                messageId: sentMessage.id?._serialized,
+                messageId: sentMessage?.id?._serialized,
                 from: clientNumber,
                 to: this.formatPhoneNumber(phoneNumber),
                 body: sendDto.message,
-                timestamp: sentMessage.timestamp || Date.now(),
+                timestamp: sentMessage?.timestamp || Date.now(),
                 messageType: sendDto.type || 'chat',
                 direction: 'OUTBOUND',
                 savedMessageId: savedMessage.id,
             });
-
             this.logger.log(`✅ Outgoing message processed and emitted for client ${clientId}`);
+            return {
+                success: true,
+                messageId: sentMessage?.id?._serialized,
+                savedMessageId: savedMessage.id,
+            };
         } catch (error) {
             this.logger.error(`❌ Error handling outgoing message:`, error);
             await this.logError(clientId, 'message_sent_error', error, { sendDto, sentMessage });
+            return { success: false, message: error.message };
         }
     }
 

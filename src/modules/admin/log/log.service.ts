@@ -23,6 +23,13 @@ export class LogService {
                     created_at: true,
                     clientId: true,
                     type: true,
+                    action: true,
+                    level: true,
+                    status: true,
+                    entityId: true,
+                    error: true,
+                    requestId: true,
+                    extra: true,
                     data: true,
                 },
             }),
@@ -38,6 +45,13 @@ export class LogService {
                     return log.data;
                 }
             })(),
+            extra: (() => {
+                try {
+                    return typeof log.extra === 'string' ? JSON.parse(log.extra) : log.extra;
+                } catch {
+                    return log.extra;
+                }
+            })(),
         }));
 
         return {
@@ -48,6 +62,49 @@ export class LogService {
                 page,
                 pageSize,
                 totalPages: Math.ceil(total / pageSize),
+            },
+        };
+    }
+
+    async findOne(id: string) {
+        const log = await this.prisma.log.findUnique({
+            where: { id },
+            select: {
+                id: true,
+                created_at: true,
+                clientId: true,
+                type: true,
+                action: true,
+                level: true,
+                status: true,
+                entityId: true,
+                error: true,
+                requestId: true,
+                extra: true,
+                data: true,
+            },
+        });
+        if (!log) {
+            return { success: false, message: 'Log not found' };
+        }
+        return {
+            success: true,
+            data: {
+                ...log,
+                data: (() => {
+                    try {
+                        return JSON.parse(log.data);
+                    } catch {
+                        return log.data;
+                    }
+                })(),
+                extra: (() => {
+                    try {
+                        return typeof log.extra === 'string' ? JSON.parse(log.extra) : log.extra;
+                    } catch {
+                        return log.extra;
+                    }
+                })(),
             },
         };
     }

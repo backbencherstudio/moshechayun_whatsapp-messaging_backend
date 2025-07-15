@@ -1,5 +1,5 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Request, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
 import { WhatsAppService } from './whatsapp.service';
 import { MessageHandlerService } from './services/message-handler.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -14,6 +14,7 @@ import { PreviewTemplateDto } from './dto/preview-template.dto';
 import { GetConversationMessagesDto } from './dto/get-conversation-messages.dto';
 import { GetCreditHistoryDto } from './dto/get-credit-history.dto';
 import { GetAllMessagesDto } from './dto/get-all-messages.dto';
+import { FileInterceptor } from '@nestjs/platform-express';
 
 @ApiTags('WhatsApp')
 @Controller('whatsapp')
@@ -88,6 +89,22 @@ export class WhatsAppController {
   async sendBulkMessage(@Body() bulkDto: SendBulkMessageDto, @Request() req) {
     const clientId = req.user.userId;
     return await this.whatsappService.sendBulkMessage(clientId, bulkDto.contactIds, bulkDto.message);
+  }
+
+  @Post('send-file')
+  @Roles(Role.CLIENT)
+  @ApiOperation({ summary: 'Send a WhatsApp file (media) message' })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('file'))
+  async sendFileMessage(
+    @Body() body: any,
+    @Request() req,
+    @UploadedFile() file: Express.Multer.File
+  ) {
+    const clientId = req.user.userId;
+    const contactId = body.contactId;
+    const caption = body.caption;
+    return await this.whatsappService.sendFileMessage(clientId, contactId, file, caption);
   }
 
   // Template Messaging
