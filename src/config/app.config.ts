@@ -53,6 +53,11 @@ export default () => ({
       app_secret: process.env.GOOGLE_APP_SECRET,
       callback: process.env.GOOGLE_CALLBACK_URL,
     },
+    facebook: {
+      app_id: process.env.FACEBOOK_APP_ID,
+      app_secret: process.env.FACEBOOK_APP_SECRET,
+      callback: process.env.FACEBOOK_CALLBACK_URL,
+    },
   },
 
   payment: {

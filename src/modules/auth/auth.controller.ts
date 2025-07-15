@@ -23,11 +23,14 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import appConfig from '../../config/app.config';
 import { AuthGuard } from '@nestjs/passport';
+import { JwtService } from '@nestjs/jwt';
 
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private authService: AuthService) { }
+  constructor(
+    private authService: AuthService,
+    private readonly jwtService: JwtService,) { }
 
   @ApiOperation({ summary: 'Get user details' })
   @ApiBearerAuth()
@@ -127,19 +130,108 @@ export class AuthController {
     }
   }
 
+  @ApiOperation({ summary: 'Initiate Google OAuth login' })
   @Get('google')
   @UseGuards(AuthGuard('google'))
   async googleLogin(): Promise<any> {
     return HttpStatus.OK;
   }
 
+  @ApiOperation({ summary: 'Google OAuth callback - stores user data and returns JWT token' })
   @Get('google/redirect')
   @UseGuards(AuthGuard('google'))
   async googleLoginRedirect(@Req() req: Request): Promise<any> {
-    return {
-      statusCode: HttpStatus.OK,
-      data: req.user,
-    };
+    try {
+      const user = req.user as any;
+
+      if (!user) {
+        throw new HttpException('Authentication failed', HttpStatus.UNAUTHORIZED);
+      }
+
+      // Generate JWT token
+      const payload = { sub: user.id, email: user.email };
+      const token = this.jwtService.sign(payload);
+
+      // Return user data along with token
+      return {
+        success: true,
+        message: 'Google login successful',
+        data: {
+          user: {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            first_name: user.first_name,
+            last_name: user.last_name,
+            avatar: user.avatar,
+            type: user.type,
+            approved_at: user.approved_at,
+            created_at: user.created_at,
+          },
+          authorization: {
+            token: token,
+            type: 'bearer',
+          }
+        }
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message || 'Google login failed',
+      };
+    }
+  }
+
+  @ApiOperation({ summary: 'Initiate Facebook OAuth login' })
+  @Get('facebook')
+  @UseGuards(AuthGuard('facebook'))
+  async facebookLogin(): Promise<any> {
+    return HttpStatus.OK;
+  }
+
+  @ApiOperation({ summary: 'Facebook OAuth callback - stores user data and returns JWT token' })
+  @Get('facebook/redirect')
+  @UseGuards(AuthGuard('facebook'))
+  async facebookLoginRedirect(@Req() req: Request): Promise<any> {
+    try {
+      const user = req.user as any;
+
+      if (!user) {
+        throw new HttpException('Authentication failed', HttpStatus.UNAUTHORIZED);
+      }
+
+      // Generate JWT token
+      const payload = { sub: user.id, email: user.email };
+      const token = this.jwtService.sign(payload);
+
+      // Return user data along with token
+      return {
+        success: true,
+        message: 'Facebook login successful',
+        data: {
+          user: {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            first_name: user.first_name,
+            last_name: user.last_name,
+            avatar: user.avatar,
+            type: user.type,
+            approved_at: user.approved_at,
+            created_at: user.created_at,
+          },
+          authorization: {
+            token: token,
+            type: 'bearer',
+          }
+        }
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message || 'Facebook login failed',
+      };
+    }
   }
 
   // update user

@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Client, LocalAuth, Message } from 'whatsapp-web.js';
+import { Client, LocalAuth, Message, MessageMedia } from 'whatsapp-web.js';
 import * as qrcode from 'qrcode';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { Inject } from '@nestjs/common';
@@ -7,6 +7,8 @@ import { WhatsAppGateway } from './whatsapp.gateway';
 import { replaceTemplateVariables, validateTemplateVariables } from './utils/template.utils';
 import { MessageHandlerService } from './services/message-handler.service';
 import { MessageType } from './dto/send-message.dto';
+import { SojebStorage } from 'src/common/lib/Disk/SojebStorage'; // adjust import as needed
+import appConfig from 'src/config/app.config';
 
 @Injectable()
 export class WhatsAppService {
@@ -556,15 +558,22 @@ export class WhatsAppService {
             await this.prisma.log.create({
                 data: {
                     clientId,
-                    type: 'message_sent',
+                    type: 'message',
+                    action: 'SEND_MESSAGE',
+                    level: 'info',
+                    status: 'success',
+                    entityId: sentMsg.id?._serialized,
                     data: JSON.stringify({
+                        contactId,
                         phoneNumber: whatsappNumber,
-                        originalNumber: phoneNumber,
-                        message,
                         retryCount,
                         creditsUsed: requiredCredits,
-                        remainingCredits: updatedUser.credits,
+                        media: false,
                     }),
+                    extra: {
+                        messageType: 'text',
+                        direction: 'OUTBOUND',
+                    },
                 },
             });
 
@@ -591,13 +600,22 @@ export class WhatsAppService {
             await this.prisma.log.create({
                 data: {
                     clientId,
-                    type: 'message_error',
+                    type: 'message',
+                    action: 'SEND_MESSAGE',
+                    level: 'error',
+                    status: 'fail',
+                    entityId: contactId,
+                    error: error.message,
                     data: JSON.stringify({
                         phoneNumber,
-                        error: error.message,
                         stack: error.stack,
                         timestamp: new Date().toISOString(),
+                        media: false,
                     }),
+                    extra: {
+                        messageType: 'text',
+                        direction: 'OUTBOUND',
+                    },
                 },
             });
 
@@ -723,7 +741,11 @@ export class WhatsAppService {
                 await this.prisma.log.create({
                     data: {
                         clientId,
-                        type: 'message_sent',
+                        type: 'message',
+                        action: 'SEND_MESSAGE',
+                        level: 'info',
+                        status: 'success',
+                        entityId: sentMsg.id?._serialized,
                         data: JSON.stringify({
                             contactId,
                             phoneNumber: whatsappNumber,
@@ -871,17 +893,17 @@ export class WhatsAppService {
                 if (deletedCount.count > 0) {
                     console.log(`🧹 Cleaned up ${deletedCount.count} old messages for client ${clientId}`);
 
-                    // Log the cleanup
-                    await this.prisma.log.create({
-                        data: {
-                            clientId,
-                            type: 'message_cleanup',
-                            data: JSON.stringify({
-                                deletedCount: deletedCount.count,
-                                timestamp: new Date().toISOString(),
-                            }),
-                        },
-                    });
+                    // // Log the cleanup
+                    // await this.prisma.log.create({
+                    //     data: {
+                    //         clientId,
+                    //         type: 'message_cleanup',
+                    //         data: JSON.stringify({
+                    //             deletedCount: deletedCount.count,
+                    //             timestamp: new Date().toISOString(),
+                    //         }),
+                    //     },
+                    // });
                 }
             }
         } catch (error) {
@@ -1043,7 +1065,6 @@ export class WhatsAppService {
                             clientId,
                             from: conv.from,
                             body: { not: '' },
-                            type: 'chat',
                         },
                         orderBy: { timestamp: 'desc' },
                         select: {
@@ -1052,6 +1073,15 @@ export class WhatsAppService {
                             timestamp: true,
                             direction: true,
                             type: true,
+                            attachment: {
+                                select: {
+                                    id: true,
+                                    name: true,
+                                    type: true,
+                                    size: true,
+                                    file: true, // This is the URL or path
+                                }
+                            }
                         },
                     });
                     // Extract phone number (remove '@c.us' if present)
@@ -1157,6 +1187,15 @@ export class WhatsAppService {
                         messageId: true,
                         from: true,
                         to: true,
+                        attachment: {
+                            select: {
+                                id: true,
+                                name: true,
+                                type: true,
+                                size: true,
+                                file: true, // This is the URL or path
+                            }
+                        }
                     },
                 }),
                 this.prisma.message.count({
@@ -1167,7 +1206,18 @@ export class WhatsAppService {
             // Return messages in chronological order (oldest to newest) for display
             // This mimics WhatsApp Web behavior where messages are displayed chronologically
             // but the conversation list shows most recent first
-            const chronologicalMessages = messages.reverse();
+            const chronologicalMessages = messages.reverse().map(msg => {
+                if (msg.attachment && msg.attachment.file) {
+                    return {
+                        ...msg,
+                        attachment: {
+                            ...msg.attachment,
+                            url: SojebStorage.url(appConfig().storageUrl.attachment + msg.attachment.file),
+                        },
+                    };
+                }
+                return msg;
+            });
 
             return {
                 success: true,
@@ -1201,23 +1251,22 @@ export class WhatsAppService {
                 recentMessages,
             ] = await Promise.all([
                 this.prisma.message.count({
-                    where: { clientId, body: { not: '' }, type: 'chat' },
+                    where: { clientId },
                 }),
                 this.prisma.message.groupBy({
                     by: ['from'],
-                    where: { clientId, body: { not: '' }, type: 'chat' },
+                    where: { clientId },
                     _count: { id: true },
                 }),
                 this.prisma.message.count({
                     where: {
                         clientId,
                         body: { not: '' },
-                        type: 'chat',
-                        // read: false, // Uncomment if you add a read field
+                        // type: 'chat', // REMOVE THIS LINE
                     },
                 }),
                 this.prisma.message.findMany({
-                    where: { clientId, body: { not: '' }, type: 'chat' },
+                    where: { clientId },
                     orderBy: { timestamp: 'desc' },
                     take: 10,
                     select: {
@@ -1227,6 +1276,15 @@ export class WhatsAppService {
                         from: true,
                         direction: true,
                         type: true,
+                        attachment: {
+                            select: {
+                                id: true,
+                                name: true,
+                                type: true,
+                                size: true,
+                                file: true, // This is the URL or path
+                            }
+                        }
                     },
                 }),
             ]);
@@ -1238,7 +1296,18 @@ export class WhatsAppService {
                         totalConversations: totalConversations.length,
                         unreadCount,
                     },
-                    recentMessages,
+                    recentMessages: recentMessages.map(msg => {
+                        if (msg.attachment && msg.attachment.file) {
+                            return {
+                                ...msg,
+                                attachment: {
+                                    ...msg.attachment,
+                                    url: SojebStorage.url(appConfig().storageUrl.attachment + msg.attachment.file),
+                                },
+                            };
+                        }
+                        return msg;
+                    }),
                 },
             };
         } catch (error) {
@@ -1354,8 +1423,7 @@ export class WhatsAppService {
             }
             const template = await this.prisma.template.findFirst({
                 where: {
-                    id: templateId,
-                    clientId
+                    id: templateId
                 },
             });
             if (!template) {
@@ -1409,14 +1477,22 @@ export class WhatsAppService {
                 data: {
                     clientId,
                     type: 'template_message_error',
+                    action: 'SEND_TEMPLATE_MESSAGE',
+                    level: 'error',
+                    status: 'fail',
+                    entityId: templateId,
+                    error: error.message,
                     data: JSON.stringify({
                         templateId,
                         contactIds,
                         variables,
-                        error: error.message,
                         stack: error.stack,
                         timestamp: new Date().toISOString(),
                     }),
+                    extra: {
+                        recipientCount: contactIds.length,
+                        variables,
+                    },
                 },
             });
             return {
@@ -1557,6 +1633,120 @@ export class WhatsAppService {
     }
 
     /**
+     * Send a file message to a phone number
+     */
+    async sendFileMessage(
+        clientId: string,
+        contactId: string,
+        file: Express.Multer.File,
+        caption?: string
+    ) {
+        // 1. Validate contact
+        const contact = await this.prisma.contact.findFirst({
+            where: { clientId, id: contactId },
+        });
+        if (!contact || !contact.phone_number) {
+            return { success: false, message: 'You can only send files to your own contacts with a valid phone number.' };
+        }
+        const whatsappNumber = this.formatPhoneNumber(contact.phone_number);
+
+        // 2. Check WhatsApp client/session
+        const healthCheck = await this.checkAndReconnectClient(clientId);
+        if (!healthCheck.success) return healthCheck;
+        await this.autoSyncMessages(clientId);
+        const client = this.clients.get(clientId);
+        if (!client || !client.info || !client.pupPage) {
+            return { success: false, message: 'WhatsApp client not ready. Please reconnect.' };
+        }
+
+        // 3. Credit check
+        const user = await this.prisma.user.findUnique({ where: { id: clientId }, select: { credits: true } });
+        const requiredCredits = 1;
+        if ((user.credits ?? 0) < requiredCredits) {
+            return { success: false, message: `Insufficient credits. You have ${user.credits ?? 0} credits, but ${requiredCredits} credit is required to send a file.` };
+        }
+
+        // 4. Send file (media) message with retry
+        let sentMsg, retryCount = 0, maxRetries = 3;
+        while (retryCount < maxRetries) {
+            try {
+                const base64 = file.buffer.toString('base64');
+                const mediaMsg = new MessageMedia(file.mimetype, base64, file.originalname);
+                sentMsg = await client.sendMessage(whatsappNumber, mediaMsg, { caption });
+                break;
+            } catch (err) {
+                retryCount++;
+                if (retryCount >= maxRetries) throw err;
+                await new Promise(res => setTimeout(res, 1000 * retryCount));
+            }
+        }
+
+        // 5. Deduct credits and log
+        await this.prisma.user.update({
+            where: { id: clientId },
+            data: { credits: { decrement: requiredCredits } },
+        });
+        await this.prisma.creditLog.create({
+            data: {
+                clientId,
+                amount: requiredCredits,
+                type: 'DECREMENT',
+                description: `Credit deducted for sending file to ${whatsappNumber}`,
+            },
+        });
+
+        // 6. Delegate message and attachment creation to the message handler
+        const handlerResult = await this.messageHandler.handleOutgoingMessage({
+            clientId,
+            contactId,
+            type: 'media',
+            caption,
+            media: file,
+            sentMsg,
+        });
+
+        // 7. Log and return
+        await this.prisma.log.create({
+            data: {
+                clientId,
+                type: 'message',
+                action: 'SEND_MESSAGE',
+                level: 'info',
+                status: 'success',
+                entityId: sentMsg.id?._serialized,
+                data: JSON.stringify({
+                    contactId,
+                    phoneNumber: whatsappNumber,
+                    retryCount,
+                    creditsUsed: requiredCredits,
+                    media: true,
+                    attachmentId: handlerResult.attachmentId,
+                    fileUrl: handlerResult.fileUrl,
+                }),
+                extra: {
+                    messageType: 'media',
+                    direction: 'OUTBOUND',
+                },
+            },
+        });
+
+        return {
+            success: true,
+            data: {
+                id: sentMsg.id?._serialized,
+                to: whatsappNumber,
+                body: caption,
+                timestamp: sentMsg.timestamp || Date.now(),
+                type: sentMsg.type || 'media',
+                direction: 'OUTBOUND',
+                retryCount,
+                creditsUsed: requiredCredits,
+                handlerResult,
+            },
+        };
+    }
+
+    /**
      * Sync all messages from WhatsApp for a client
      */
     async syncAllMessages(clientId: string) {
@@ -1639,17 +1829,17 @@ export class WhatsAppService {
             await this.cleanupOldMessages(clientId);
 
             // Log the sync operation
-            await this.prisma.log.create({
-                data: {
-                    clientId,
-                    type: 'message_sync',
-                    data: JSON.stringify({
-                        totalSynced,
-                        totalSkipped,
-                        timestamp: new Date().toISOString(),
-                    }),
-                },
-            });
+            // await this.prisma.log.create({
+            //     data: {
+            //         clientId,
+            //         type: 'message_sync',
+            //         data: JSON.stringify({
+            //             totalSynced,
+            //             totalSkipped,
+            //             timestamp: new Date().toISOString(),
+            //         }),
+            //     },
+            // });
 
             console.log(`✅ Message sync completed for client ${clientId}: ${totalSynced} synced, ${totalSkipped} skipped`);
 
@@ -1677,7 +1867,7 @@ export class WhatsAppService {
         try {
             const [messages, totalCount] = await Promise.all([
                 this.prisma.message.findMany({
-                    where: { clientId, body: { not: '' }, type: 'chat' },
+                    where: { clientId },
                     orderBy: { timestamp: 'desc' }, // Most recent first
                     take: limit,
                     skip: offset,
@@ -1690,10 +1880,19 @@ export class WhatsAppService {
                         messageId: true,
                         from: true,
                         to: true,
+                        attachment: {
+                            select: {
+                                id: true,
+                                name: true,
+                                type: true,
+                                size: true,
+                                file: true, // This is the URL or path
+                            }
+                        }
                     },
                 }),
                 this.prisma.message.count({
-                    where: { clientId, body: { not: '' }, type: 'chat' },
+                    where: { clientId },
                 }),
             ]);
 

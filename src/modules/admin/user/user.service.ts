@@ -9,7 +9,7 @@ import { DateHelper } from '../../../common/helper/date.helper';
 
 @Injectable()
 export class UserService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) { }
 
   async create(createUserDto: CreateUserDto) {
     try {
@@ -222,6 +222,90 @@ export class UserService {
         success: false,
         message: error.message,
       };
+    }
+  }
+
+  async findByEmail(email: string) {
+    return this.prisma.user.findUnique({ where: { email } });
+  }
+
+  async createWithGoogle(data: {
+    email: string;
+    first_name: string;
+    last_name: string;
+    avatar: string;
+  }) {
+    return this.createWithOAuth(data);
+  }
+
+  async createWithOAuth(data: {
+    email: string;
+    first_name: string;
+    last_name: string;
+    avatar?: string;
+  }) {
+    return this.prisma.user.create({
+      data: {
+        email: data.email,
+        first_name: data.first_name,
+        last_name: data.last_name,
+        name: `${data.first_name} ${data.last_name}`,
+        avatar: data.avatar,
+        type: 'user',
+        approved_at: DateHelper.now(),
+        created_at: DateHelper.now(),
+        updated_at: DateHelper.now(),
+      },
+    });
+  }
+
+  async createOAuthAccount(data: {
+    userId: string;
+    provider: string;
+    providerAccountId: string;
+    accessToken?: string;
+    refreshToken?: string;
+  }) {
+    return this.prisma.account.create({
+      data: {
+        user_id: data.userId,
+        provider: data.provider,
+        provider_account_id: data.providerAccountId,
+        access_token: data.accessToken,
+        refresh_token: data.refreshToken,
+      },
+    });
+  }
+
+  async updateOrCreateOAuthAccount(data: {
+    userId: string;
+    provider: string;
+    providerAccountId: string;
+    accessToken?: string;
+    refreshToken?: string;
+  }) {
+    // Check if OAuth account already exists
+    const existingAccount = await this.prisma.account.findFirst({
+      where: {
+        user_id: data.userId,
+        provider: data.provider,
+        provider_account_id: data.providerAccountId,
+      },
+    });
+
+    if (existingAccount) {
+      // Update existing account
+      return this.prisma.account.update({
+        where: { id: existingAccount.id },
+        data: {
+          access_token: data.accessToken,
+          refresh_token: data.refreshToken,
+          updated_at: DateHelper.now(),
+        },
+      });
+    } else {
+      // Create new account
+      return this.createOAuthAccount(data);
     }
   }
 }

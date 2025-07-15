@@ -474,8 +474,8 @@ model Template {
   id           String   @id @default(cuid())
   created_at   DateTime @default(now())
   updated_at   DateTime @default(now())
-  client       User     @relation("ClientTemplates", fields: [clientId], references: [id], onDelete: Cascade)
-  clientId     String
+  clientId     String?
+  client       User?    @relation("ClientTemplates", fields: [clientId], references: [id], onDelete: Cascade)
   name         String
   content      String
   businessType String
@@ -499,7 +499,16 @@ model Log {
   client     User     @relation("ClientLogs", fields: [clientId], references: [id], onDelete: Cascade)
   clientId   String
   type       String // e.g., 'message', 'login', 'webhook'
+  action     String? // e.g., 'SEND_MESSAGE', 'LOGIN'
+  level      String? // e.g., 'info', 'error', 'debug'
+  status     String? // e.g., 'success', 'fail'
+  entityId   String? // e.g., messageId, userId, etc.
+  ip         String?
+  userAgent  String?
+  error      String?
+  requestId  String?
   data       String? // JSON or stringified log data
+  extra      Json? // For any additional structured data
 }
 
 model CreditLog {
@@ -508,6 +517,11 @@ model CreditLog {
   client      User     @relation(fields: [clientId], references: [id])
   amount      Int
   type        String // 'INCREMENT' or 'DECREMENT'
+  action      String? // e.g., 'SEND_MESSAGE', 'PURCHASE'
+  status      String? // e.g., 'success', 'fail'
+  entityId    String? // e.g., messageId, transactionId
+  operatorId  String? // e.g., admin user id
   description String?
+  extra       Json?
   createdAt   DateTime @default(now())
 }
