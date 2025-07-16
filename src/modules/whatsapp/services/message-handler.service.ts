@@ -92,33 +92,6 @@ export class MessageHandlerService {
             // Process message based on type
             await this.processMessageByType(clientId, message, messageData);
 
-            // 1. Auto-reply to all inbound messages (not sent by us)
-            if (!message.fromMe) {
-                const autoReply = "Thank you for your message. We will get back to you soon.";
-                // Directly send the WhatsApp message using the static clients map
-                const client = MessageHandlerService.clients?.get(clientId);
-                if (client) {
-                    try {
-                        await client.sendMessage(message.from, autoReply);
-                    } catch (sendErr) {
-                        this.logger.error(`❌ Failed to send auto-reply via WhatsApp client:`, sendErr);
-                    }
-                } else {
-                    this.logger.error(`❌ WhatsApp client not found for clientId: ${clientId}`);
-                }
-                // Optionally, still emit to WebSocket for UI
-                await this.gateway.sendMessageToClient(clientId, {
-                    type: 'auto_reply',
-                    messageId: message.id._serialized,
-                    from: message.to,
-                    to: message.from,
-                    body: autoReply,
-                    timestamp: Date.now(),
-                    messageType: 'chat',
-                    direction: 'OUTBOUND',
-                });
-            }
-
             // 2. Only auto-respond to missed calls (PBX call)
             if (
                 !message.fromMe &&
@@ -146,6 +119,50 @@ export class MessageHandlerService {
                 fileUrl,
                 attachmentId,
             });
+
+            // 1. Auto-reply to all inbound messages (not sent by us)
+            if (!message.fromMe) {
+                const autoReply = "Thank you for your message. We will get back to you soon.";
+                const client = MessageHandlerService.clients?.get(clientId);
+                let sentMsg;
+                if (client) {
+                    try {
+                        sentMsg = await client.sendMessage(message.from, autoReply);
+                    } catch (sendErr) {
+                        this.logger.error(`❌ Failed to send auto-reply via WhatsApp client:`, sendErr);
+                    }
+                } else {
+                    this.logger.error(`❌ WhatsApp client not found for clientId: ${clientId}`);
+                }
+
+                // Save the auto-reply as an outbound message in the database
+                if (sentMsg) {
+                    await this.prisma.message.create({
+                        data: {
+                            clientId,
+                            from: message.to, // our number
+                            to: message.from, // recipient
+                            body: autoReply,
+                            type: 'chat',
+                            timestamp: new Date(sentMsg.timestamp * 1000),
+                            messageId: sentMsg.id?._serialized || undefined,
+                            direction: 'OUTBOUND',
+                        },
+                    });
+                }
+
+                // Optionally, still emit to WebSocket for UI
+                await this.gateway.sendMessageToClient(clientId, {
+                    type: 'auto_reply',
+                    messageId: sentMsg?.id?._serialized || undefined,
+                    from: message.to,
+                    to: message.from,
+                    body: autoReply,
+                    timestamp: Date.now(),
+                    messageType: 'chat',
+                    direction: 'OUTBOUND',
+                });
+            }
 
             this.logger.log(`✅ Message processed and emitted for client ${clientId}`);
             return {

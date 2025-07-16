@@ -65,18 +65,18 @@ export class AuthController {
       if (!name) {
         throw new HttpException('Name not provided', HttpStatus.UNAUTHORIZED);
       }
-      if (!first_name) {
-        throw new HttpException(
-          'First name not provided',
-          HttpStatus.UNAUTHORIZED,
-        );
-      }
-      if (!last_name) {
-        throw new HttpException(
-          'Last name not provided',
-          HttpStatus.UNAUTHORIZED,
-        );
-      }
+      // if (!first_name) {
+      //   throw new HttpException(
+      //     'First name not provided',
+      //     HttpStatus.UNAUTHORIZED,
+      //   );
+      // }
+      // if (!last_name) {
+      //   throw new HttpException(
+      //     'Last name not provided',
+      //     HttpStatus.UNAUTHORIZED,
+      //   );
+      // }
       if (!email) {
         throw new HttpException('Email not provided', HttpStatus.UNAUTHORIZED);
       }

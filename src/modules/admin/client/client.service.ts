@@ -55,6 +55,7 @@ export class ClientService {
         name: true,
         email: true,
         phone_number: true,
+        user_type: true,
         website: true,
         created_at: true,
         credits: true,
@@ -79,15 +80,29 @@ export class ClientService {
         website: true,
         created_at: true,
         credits: true,
+        user_type: true,
         status: true,
         avatar: true,
-        contacts: true
+        contacts: {
+          select: {
+            name: true,
+            email: true,
+            phone_number: true,
+            role: true,
+            status: true,
+            avatar: true,
+          }
+        }
       },
     });
     if (!client) return { success: false, message: 'Client not found' };
 
     // Add avatar URL to the client
     const clientWithAvatar = FileUrlHelper.addAvatarUrl(client);
+    // Add avatarUrl to each contact
+    if (clientWithAvatar.contacts && Array.isArray(clientWithAvatar.contacts)) {
+      clientWithAvatar.contacts = clientWithAvatar.contacts.map(contact => FileUrlHelper.addAvatarUrl(contact));
+    }
     return { success: true, data: clientWithAvatar };
   }
 
@@ -200,5 +215,39 @@ export class ClientService {
       }
     });
     return { success: true, data: logs };
+  }
+
+  async getMessageCredits(clientId: string) {
+    // Get current credits and last updated
+    const client = await this.prisma.user.findUnique({
+      where: { id: clientId, type: 'client' },
+      select: {
+        credits: true,
+        updated_at: true,
+      },
+    });
+    if (!client) return { success: false, message: 'Client not found' };
+
+    // Count messages sent this month
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    const usedThisMonth = await this.prisma.message.count({
+      where: {
+        clientId,
+        direction: 'OUTBOUND',
+        created_at: { gte: startOfMonth },
+      },
+    });
+
+    return {
+      success: true,
+      data: {
+        credits: client.credits,
+        lastUpdated: client.updated_at,
+        usedThisMonth,
+      },
+    };
   }
 }
