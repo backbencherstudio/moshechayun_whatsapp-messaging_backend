@@ -68,4 +68,9 @@ export class ClientController {
   getCreditHistory(@Param('id') id: string) {
     return this.clientService.getCreditHistory(id);
   }
+
+  @Get(':id/credits')
+  async getMessageCredits(@Param('id') id: string) {
+    return this.clientService.getMessageCredits(id);
+  }
 }

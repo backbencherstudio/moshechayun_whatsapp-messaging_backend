@@ -14,7 +14,7 @@ import { Server, Socket } from 'socket.io';
         origin: ['http://localhost:3000', 'http://localhost:8080', 'http://127.0.0.1:5500', 'http://127.0.0.1:3000', '*'],
         credentials: true
     },
-    namespace: '/'
+    namespace: '/whatsapp'
 })
 export class WhatsAppGateway implements OnGatewayConnection, OnGatewayDisconnect, OnGatewayInit {
     @WebSocketServer()
@@ -28,7 +28,7 @@ export class WhatsAppGateway implements OnGatewayConnection, OnGatewayDisconnect
     }
 
     handleConnection(client: Socket) {
-        console.log(`🔌 Client connected: ${client.id}`);
+
 
         // Get clientId from query parameters
         const clientId = client.handshake.query.clientId as string;
@@ -38,6 +38,7 @@ export class WhatsAppGateway implements OnGatewayConnection, OnGatewayDisconnect
             this.clients.set(clientId, client.id);
 
             // Join the client to their specific room
+            console.log(`🔌 Client connected: ${client.id}`);
             client.join(clientId);
 
             console.log(`✅ Client ${clientId} joined room ${clientId}`);

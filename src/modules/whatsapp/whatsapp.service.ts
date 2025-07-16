@@ -37,6 +37,7 @@ export class WhatsAppService {
     ) {
         this.restoreActiveSessions();
         this.startPeriodicAutoSync();
+        MessageHandlerService.clients = this.clients;
     }
 
     /**
@@ -1092,7 +1093,7 @@ export class WhatsAppService {
                     if (phoneNumber) {
                         user = await this.prisma.contact.findFirst({
                             where: { phone_number: phoneNumber },
-                            select: { name: true, avatar: true },
+                            select: { id: true, name: true, avatar: true },
                         });
                     }
 
@@ -1101,6 +1102,7 @@ export class WhatsAppService {
                         messageCount: conv._count.id,
                         lastMessage: latestMessage,
                         lastActivity: conv._max.timestamp,
+                        userId: user?.id || null,
                         name: user?.name || null,
                         avatar: user?.avatar || null,
                     };

@@ -8,6 +8,7 @@ import { NotificationModule } from './notification/notification.module';
 import { ClientModule } from './client/client.module';
 import { TemplateModule } from './template/template.module';
 import { LogModule } from './log/log.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { LogModule } from './log/log.module';
     ClientModule,
     TemplateModule,
     LogModule,
+    DashboardModule,
   ],
 })
 export class AdminModule { }

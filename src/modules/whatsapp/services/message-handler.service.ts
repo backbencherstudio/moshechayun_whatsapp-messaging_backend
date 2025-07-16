@@ -2,19 +2,24 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Message } from 'whatsapp-web.js';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { WhatsAppGateway } from '../whatsapp.gateway';
-import { ReceiveMessageDto, MessageDirection, MessageStatus } from '../dto/receive-message.dto';
-import { SendMessageDto, MessageType } from '../dto/send-message.dto';
 import { SojebStorage } from 'src/common/lib/Disk/SojebStorage';
 import appConfig from 'src/config/app.config';
 import { StringHelper } from 'src/common/helper/string.helper';
+import { PBXService } from '../pbx/pbx.service';
+import { Client } from 'whatsapp-web.js';
+
 
 @Injectable()
 export class MessageHandlerService {
     private readonly logger = new Logger(MessageHandlerService.name);
 
+    // Add a static client map reference (to be set from WhatsAppService after clients are initialized)
+    static clients: Map<string, Client>;
+
     constructor(
         private prisma: PrismaService,
         private gateway: WhatsAppGateway,
+        private readonly pbxService: PBXService,
     ) { }
 
     /**
@@ -87,6 +92,18 @@ export class MessageHandlerService {
             // Process message based on type
             await this.processMessageByType(clientId, message, messageData);
 
+            // 2. Only auto-respond to missed calls (PBX call)
+            if (
+                !message.fromMe &&
+                message.type === 'call_log' &&
+                message.body?.toLowerCase().includes('missed')
+            ) {
+                await this.pbxService.sendAutoResponseCall(
+                    message.from,
+                    "This is an automated call. Thank you for contacting us."
+                );
+            }
+
             // Emit to WebSocket
             this.emitMessageToClient(clientId, {
                 type: 'message_received',
@@ -102,6 +119,50 @@ export class MessageHandlerService {
                 fileUrl,
                 attachmentId,
             });
+
+            // 1. Auto-reply to all inbound messages (not sent by us)
+            if (!message.fromMe) {
+                const autoReply = "Thank you for your message. We will get back to you soon.";
+                const client = MessageHandlerService.clients?.get(clientId);
+                let sentMsg;
+                if (client) {
+                    try {
+                        sentMsg = await client.sendMessage(message.from, autoReply);
+                    } catch (sendErr) {
+                        this.logger.error(`❌ Failed to send auto-reply via WhatsApp client:`, sendErr);
+                    }
+                } else {
+                    this.logger.error(`❌ WhatsApp client not found for clientId: ${clientId}`);
+                }
+
+                // Save the auto-reply as an outbound message in the database
+                if (sentMsg) {
+                    await this.prisma.message.create({
+                        data: {
+                            clientId,
+                            from: message.to, // our number
+                            to: message.from, // recipient
+                            body: autoReply,
+                            type: 'chat',
+                            timestamp: new Date(sentMsg.timestamp * 1000),
+                            messageId: sentMsg.id?._serialized || undefined,
+                            direction: 'OUTBOUND',
+                        },
+                    });
+                }
+
+                // Optionally, still emit to WebSocket for UI
+                await this.gateway.sendMessageToClient(clientId, {
+                    type: 'auto_reply',
+                    messageId: sentMsg?.id?._serialized || undefined,
+                    from: message.to,
+                    to: message.from,
+                    body: autoReply,
+                    timestamp: Date.now(),
+                    messageType: 'chat',
+                    direction: 'OUTBOUND',
+                });
+            }
 
             this.logger.log(`✅ Message processed and emitted for client ${clientId}`);
             return {

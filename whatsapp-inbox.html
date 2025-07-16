@@ -194,6 +194,11 @@
                 <div class="messages" id="messages">
                     <div class="loading">Select a conversation to view messages</div>
                 </div>
+                <!-- Add this block below the messages div -->
+                <div style="display: flex; padding: 10px; border-top: 1px solid #eee; background: #fafafa;">
+                    <input type="text" id="chatMessageInput" placeholder="Type your message..." style="flex:1; padding:8px; border:1px solid #ddd; border-radius:4px;">
+                    <button class="btn" style="margin-left:10px;" onclick="sendMessageInChat()">Send</button>
+                </div>
             </div>
         </div>
     </div>
@@ -227,7 +232,7 @@
                     method: 'GET',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImpvaG5AZ21haWwuY29tIiwic3ViIjoiY21jeDlkNDh5MDAwMHdzbjA4Y25hdDhqdSIsImlhdCI6MTc1MjQ2NTAxMSwiZXhwIjoxNzUyNTUxNDExfQ.tQmw_ABf5YfcZYx2zZogMHH5JzFwb3WnzqhCndWQlGo'
+                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImpvaG5AZ21haWwuY29tIiwic3ViIjoiY21jeDlkNDh5MDAwMHdzbjA4Y25hdDhqdSIsImlhdCI6MTc1MjYzNzA1MSwiZXhwIjoxNzUyNzIzNDUxfQ.Y4o_xi2QyqdEaTRYVDdV3MP0-0LrMQo5wHsFTwxZz9c'
                     }
                 });
                 const data = await response.json();
@@ -260,7 +265,7 @@
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImpvaG5AZ21haWwuY29tIiwic3ViIjoiY21jeDlkNDh5MDAwMHdzbjA4Y25hdDhqdSIsImlhdCI6MTc1MjQ2NTAxMSwiZXhwIjoxNzUyNTUxNDExfQ.tQmw_ABf5YfcZYx2zZogMHH5JzFwb3WnzqhCndWQlGo'
+                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImpvaG5AZ21haWwuY29tIiwic3ViIjoiY21jeDlkNDh5MDAwMHdzbjA4Y25hdDhqdSIsImlhdCI6MTc1MjYzNzA1MSwiZXhwIjoxNzUyNzIzNDUxfQ.Y4o_xi2QyqdEaTRYVDdV3MP0-0LrMQo5wHsFTwxZz9c'
                     },
                     body: JSON.stringify({ clientId: clientId })
                 });
@@ -292,7 +297,7 @@
                     method: 'GET',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImpvaG5AZ21haWwuY29tIiwic3ViIjoiY21jeDlkNDh5MDAwMHdzbjA4Y25hdDhqdSIsImlhdCI6MTc1MjQ2NTAxMSwiZXhwIjoxNzUyNTUxNDExfQ.tQmw_ABf5YfcZYx2zZogMHH5JzFwb3WnzqhCndWQlGo'
+                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImpvaG5AZ21haWwuY29tIiwic3ViIjoiY21jeDlkNDh5MDAwMHdzbjA4Y25hdDhqdSIsImlhdCI6MTc1MjYzNzA1MSwiZXhwIjoxNzUyNzIzNDUxfQ.Y4o_xi2QyqdEaTRYVDdV3MP0-0LrMQo5wHsFTwxZz9c'
                     }
                 });
                 const data = await response.json();
@@ -322,7 +327,7 @@
                     method: 'GET',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImpvaG5AZ21haWwuY29tIiwic3ViIjoiY21jeDlkNDh5MDAwMHdzbjA4Y25hdDhqdSIsImlhdCI6MTc1MjQ2NTAxMSwiZXhwIjoxNzUyNTUxNDExfQ.tQmw_ABf5YfcZYx2zZogMHH5JzFwb3WnzqhCndWQlGo'
+                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImpvaG5AZ21haWwuY29tIiwic3ViIjoiY21jeDlkNDh5MDAwMHdzbjA4Y25hdDhqdSIsImlhdCI6MTc1MjYzNzA1MSwiZXhwIjoxNzUyNzIzNDUxfQ.Y4o_xi2QyqdEaTRYVDdV3MP0-0LrMQo5wHsFTwxZz9c'
                     }
                 });
                 const data = await response.json();
@@ -343,6 +348,7 @@
 
         function displayConversations(conversations) {
             const sidebar = document.getElementById('sidebar');
+            window.phoneToContactIdMap = {}; // Add this line
             
             if (conversations.length === 0) {
                 sidebar.innerHTML = '<div class="loading">No conversations found</div>';
@@ -357,7 +363,9 @@
                 return;
             }
 
-            sidebar.innerHTML = validConversations.map(conv => `
+            sidebar.innerHTML = validConversations.map(conv => {
+                window.phoneToContactIdMap[conv.phoneNumber] = conv.contactId; // Store mapping
+                return `
                 <div class="conversation" onclick="loadConversationMessages('${conv.phoneNumber}')">
                     <div class="conversation-header">${formatPhoneNumber(conv.phoneNumber)}</div>
                     <div class="conversation-preview">${conv.lastMessage?.body || 'No messages'}</div>
@@ -365,7 +373,8 @@
                         ${conv.messageCount} messages • ${formatDate(conv.lastActivity)}
                     </div>
                 </div>
-            `).join('');
+            `;
+            }).join('');
         }
 
         async function loadConversationMessages(phoneNumber) {
@@ -389,7 +398,7 @@
                     method: 'GET',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImpvaG5AZ21haWwuY29tIiwic3ViIjoiY21jeDlkNDh5MDAwMHdzbjA4Y25hdDhqdSIsImlhdCI6MTc1MjQ2NTAxMSwiZXhwIjoxNzUyNTUxNDExfQ.tQmw_ABf5YfcZYx2zZogMHH5JzFwb3WnzqhCndWQlGo'
+                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImpvaG5AZ21haWwuY29tIiwic3ViIjoiY21jeDlkNDh5MDAwMHdzbjA4Y25hdDhqdSIsImlhdCI6MTc1MjYzNzA1MSwiZXhwIjoxNzUyNzIzNDUxfQ.Y4o_xi2QyqdEaTRYVDdV3MP0-0LrMQo5wHsFTwxZz9c'
                     }
                 });
                 const data = await response.json();
@@ -464,7 +473,7 @@
             }
 
             // Connect to WebSocket with proper configuration
-            socket = io('http://localhost:4000', {
+            socket = io('http://localhost:4000/whatsapp', {
                 query: { clientId: clientId },
                 transports: ['websocket', 'polling'],
                 timeout: 20000,
@@ -528,6 +537,82 @@
                 console.error('WebSocket error:', error);
                 showStatus(`❌ WebSocket error: ${error}`, 'error');
             });
+        }
+
+        async function sendWhatsAppMessage() {
+            const clientId = document.getElementById('clientId').value;
+            const contactId = document.getElementById('contactId').value;
+            const message = document.getElementById('messageText').value;
+
+            if (!clientId || !contactId || !message) {
+                showStatus('Please enter client ID, contact ID, and message', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('http://localhost:4000/api/whatsapp/send', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImpvaG5AZ21haWwuY29tIiwic3ViIjoiY21jeDlkNDh5MDAwMHdzbjA4Y25hdDhqdSIsImlhdCI6MTc1MjYzNzA1MSwiZXhwIjoxNzUyNzIzNDUxfQ.Y4o_xi2QyqdEaTRYVDdV3MP0-0LrMQo5wHsFTwxZz9c'
+                    },
+                    body: JSON.stringify({
+                        contactId: contactId,
+                        message: message
+                    })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    showStatus('Message sent successfully!');
+                } else {
+                    showStatus('Error: ' + data.message, 'error');
+                }
+            } catch (error) {
+                showStatus('Error: ' + error.message, 'error');
+            }
+        }
+
+        async function sendMessageInChat() {
+            const clientId = document.getElementById('clientId').value;
+            const message = document.getElementById('chatMessageInput').value;
+            const contactId = getContactIdByPhone(currentConversation);
+
+            if (!clientId || !contactId || !message) {
+                showStatus('Please select a conversation and enter a message', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('http://localhost:4000/api/whatsapp/send', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImpvaG5AZ21haWwuY29tIiwic3ViIjoiY21jeDlkNDh5MDAwMHdzbjA4Y25hdDhqdSIsImlhdCI6MTc1MjQ2NTAxMSwiZXhwIjoxNzUyNTUxNDExfQ.tQmw_ABf5YfcZYx2zZogMHH5JzFwb3WnzqhCndWQlGo'
+                    },
+                    body: JSON.stringify({
+                        contactId: contactId,
+                        message: message
+                    })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    showStatus('Message sent!');
+                    document.getElementById('chatMessageInput').value = '';
+                    // Optionally reload messages
+                    loadConversationMessages(currentConversation);
+                } else {
+                    showStatus('Error: ' + data.message, 'error');
+                }
+            } catch (error) {
+                showStatus('Error: ' + error.message, 'error');
+            }
+        }
+
+        // Helper: Map phone number to contactId (you need to implement this based on your data)
+        function getContactIdByPhone(phoneNumber) {
+            // You need to keep a mapping of phoneNumber -> contactId when loading conversations
+            // For now, you can store it in a global object when loading conversations
+            return window.phoneToContactIdMap ? window.phoneToContactIdMap[phoneNumber] : null;
         }
 
         // Auto-connect WebSocket on page load

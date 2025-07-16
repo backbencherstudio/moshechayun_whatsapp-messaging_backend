@@ -270,6 +270,7 @@ enum MessageStatus {
   SENT
   DELIVERED
   READ
+  FAILED
 }
 
 // message is used for conversation
@@ -476,6 +477,7 @@ model Template {
   updated_at   DateTime @default(now())
   clientId     String?
   client       User?    @relation("ClientTemplates", fields: [clientId], references: [id], onDelete: Cascade)
+  status       Int?     @default(1) @db.SmallInt
   name         String
   content      String
   businessType String
