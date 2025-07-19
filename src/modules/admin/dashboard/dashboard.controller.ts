@@ -8,15 +8,16 @@ export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) { }
 
   // @UseGuards(JwtAuthGuard) // Uncomment if you want to protect this route
-  @Get('stats')
-  async getStats(@Request() req) {
-    const clientId = req.user?.userId || req.query.clientId || req.params.clientId;
-    return this.dashboardService.getStats(clientId);
-  }
 
   @Get('global-stats')
   async getGlobalStats() {
     return this.dashboardService.getGlobalStats();
+  }
+
+  @Get('stats')
+  async getStats(@Request() req) {
+    const clientId = req.user?.userId || req.query.clientId || req.params.clientId;
+    return this.dashboardService.getStats(clientId);
   }
 
   @Get('clients/top')
@@ -47,5 +48,16 @@ export class DashboardController {
   async getMessageStatusRatio(@Request() req) {
     const clientId = req.user?.userId || req.query.clientId || req.params.clientId;
     return this.dashboardService.getMessageStatusRatio(clientId);
+  }
+
+  @Get('global-message-status-ratio')
+  async getGlobalMessageStatusRatio() {
+    return this.dashboardService.getGlobalMessageStatusRatio();
+  }
+
+  @Get('global-message-trends')
+  async getGlobalMessageTrends(@Request() req) {
+    const days = req.query.days ? parseInt(req.query.days, 10) : 7;
+    return this.dashboardService.getGlobalMessageTrends(days);
   }
 }

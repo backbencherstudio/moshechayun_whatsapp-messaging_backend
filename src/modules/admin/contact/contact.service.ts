@@ -135,12 +135,10 @@ export class ContactService {
           name: true,
           email: true,
           phone_number: true,
-          message: true,
+          role: true,
           avatar: true,
           status: true,
-          whatsappNumber: true,
           created_at: true,
-          updated_at: true,
           client: {
             select: {
               id: true,
@@ -180,12 +178,10 @@ export class ContactService {
           name: true,
           email: true,
           phone_number: true,
-          message: true,
+          role: true,
           avatar: true,
           status: true,
-          whatsappNumber: true,
           created_at: true,
-          updated_at: true,
           client: {
             select: {
               id: true,
