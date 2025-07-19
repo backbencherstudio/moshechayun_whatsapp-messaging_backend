@@ -20,5 +20,9 @@ export class CreateClientDto {
 
     @IsOptional()
     @IsString()
+    user_type?: string;
+
+    @IsOptional()
+    @IsString()
     avatar?: string;
 }

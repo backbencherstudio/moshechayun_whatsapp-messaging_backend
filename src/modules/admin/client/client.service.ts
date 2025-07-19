@@ -85,6 +85,7 @@ export class ClientService {
         avatar: true,
         contacts: {
           select: {
+            id: true,
             name: true,
             email: true,
             phone_number: true,

@@ -8,48 +8,35 @@ export class DashboardService {
 
     async getStats(clientId: string) {
         try {
-            const client = await this.prisma.user.findUnique({
-                where: { id: clientId }
-            });
-
-            if (!client) {
-                return { success: false, message: 'Client not found' };
-            }
-
-            console.log(client)
-
-            // Total contacts
-            const totalContacts = await this.prisma.contact.count({ where: { clientId } });
-
-            // Successful messages (e.g., status: 'SENT' or 'DELIVERED')
-            const successfulMessages = await this.prisma.message.count({
-                where: {
-                    clientId,
-                    status: { in: [MessageStatus.SENT, MessageStatus.DELIVERED, MessageStatus.READ] },
-                    direction: 'OUTBOUND',
-                },
-            });
-
-            // Failed messages (e.g., status: 'FAILED')
-            const failedMessages = await this.prisma.message.count({
-                where: {
-                    clientId,
-                    status: MessageStatus.FAILED,
-                    direction: 'OUTBOUND',
-                },
-            });
-
-            // Pending messages (e.g., status: 'PENDING')
-            const pendingMessages = await this.prisma.message.count({
-                where: {
-                    clientId,
-                    status: MessageStatus.PENDING,
-                    direction: 'OUTBOUND',
-                },
-            });
-
-            // You can also add logic for % change, last week, etc.
-
+            const [
+                totalContacts,
+                successfulMessages,
+                failedMessages,
+                pendingMessages
+            ] = await Promise.all([
+                this.prisma.contact.count({ where: { clientId } }),
+                this.prisma.message.count({
+                    where: {
+                        clientId,
+                        status: { in: [MessageStatus.SENT, MessageStatus.DELIVERED, MessageStatus.READ] },
+                        direction: 'OUTBOUND',
+                    },
+                }),
+                this.prisma.message.count({
+                    where: {
+                        clientId,
+                        status: MessageStatus.FAILED,
+                        direction: 'OUTBOUND',
+                    },
+                }),
+                this.prisma.message.count({
+                    where: {
+                        clientId,
+                        status: MessageStatus.PENDING,
+                        direction: 'OUTBOUND',
+                    },
+                }),
+            ]);
             return {
                 success: true,
                 data: {
@@ -57,7 +44,6 @@ export class DashboardService {
                     successfulMessages,
                     failedMessages,
                     pendingMessages,
-                    // Add more fields as needed
                 },
             };
         } catch (error) {
@@ -258,9 +244,86 @@ export class DashboardService {
             statuses.forEach((status, i) => {
                 result[status] = counts[i];
             });
+            // Add cumulative counts
+            result.SENT = result[MessageStatus.SENT] + result[MessageStatus.DELIVERED] + result[MessageStatus.READ];
+            result.DELIVERED = result[MessageStatus.DELIVERED] + result[MessageStatus.READ];
             return { success: true, data: result };
         } catch (error) {
             console.error('DashboardService.getMessageStatusRatio error:', error);
+            return { success: false, message: error.message || 'Internal server error' };
+        }
+    }
+
+    async getGlobalMessageStatusRatio() {
+        try {
+            const statuses = [
+                MessageStatus.SENT,
+                MessageStatus.DELIVERED,
+                MessageStatus.READ,
+                MessageStatus.FAILED,
+                MessageStatus.PENDING
+            ];
+            const counts = await Promise.all(
+                statuses.map(status =>
+                    this.prisma.message.count({ where: { status } })
+                )
+            );
+            const result: Record<string, number> = {};
+            statuses.forEach((status, i) => {
+                result[status] = counts[i];
+            });
+            // Add cumulative counts
+            result.SENT = result[MessageStatus.SENT] + result[MessageStatus.DELIVERED] + result[MessageStatus.READ];
+            result.DELIVERED = result[MessageStatus.DELIVERED] + result[MessageStatus.READ];
+            return { success: true, data: result };
+        } catch (error) {
+            console.error('DashboardService.getGlobalMessageStatusRatio error:', error);
+            return { success: false, message: error.message || 'Internal server error' };
+        }
+    }
+
+    async getGlobalMessageTrends(days: number = 7) {
+        try {
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - days + 1);
+            startDate.setHours(0, 0, 0, 0);
+
+            const messages = await this.prisma.message.findMany({
+                where: {
+                    timestamp: { gte: startDate },
+                },
+                select: {
+                    timestamp: true,
+                    direction: true,
+                    status: true,
+                },
+            });
+
+            const trends: Record<string, { sent: number; received: number; failed: number }> = {};
+            for (let i = 0; i < days; i++) {
+                const d = new Date(startDate);
+                d.setDate(d.getDate() + i);
+                const key = d.toISOString().slice(0, 10);
+                trends[key] = { sent: 0, received: 0, failed: 0 };
+            }
+
+            messages.forEach(msg => {
+                const key = new Date(msg.timestamp).toISOString().slice(0, 10);
+                if (!trends[key]) return;
+                if (msg.direction === 'OUTBOUND') {
+                    trends[key].sent++;
+                    if (msg.status === 'FAILED') trends[key].failed++;
+                } else if (msg.direction === 'INBOUND') {
+                    trends[key].received++;
+                }
+            });
+
+            return {
+                success: true,
+                data: Object.entries(trends).map(([date, counts]) => ({ date, ...counts })),
+            };
+        } catch (error) {
+            console.error('DashboardService.getGlobalMessageTrends error:', error);
             return { success: false, message: error.message || 'Internal server error' };
         }
     }

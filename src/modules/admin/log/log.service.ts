@@ -7,10 +7,20 @@ export class LogService {
     constructor(private prisma: PrismaService) { }
 
     async findAll(query: GetLogDto) {
-        const { clientId, type, page = 1, pageSize = 20 } = query;
+        const { clientId, type, page = 1, pageSize = 20, startDate, endDate, receiver, status } = query;
         const where: any = {};
         if (clientId) where.clientId = clientId;
         if (type) where.type = type;
+        if (startDate || endDate) {
+            where.created_at = {};
+            if (startDate) where.created_at.gte = new Date(startDate);
+            if (endDate) where.created_at.lte = new Date(endDate);
+        }
+        if (receiver) {
+            const receiverJid = receiver.endsWith('@c.us') ? receiver : receiver + '@c.us';
+            where["data.phoneNumber"] = receiverJid;
+        }
+        if (status) where["status"] = status;
 
         const [rawData, total] = await Promise.all([
             this.prisma.log.findMany({
