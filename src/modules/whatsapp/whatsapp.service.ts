@@ -250,12 +250,20 @@ export class WhatsAppService {
      * Emit status update to WebSocket clients
      */
     private emitStatusUpdate(clientId: string, status: string) {
-        this.gateway.sendMessageToClient(clientId, {
-            type: 'whatsapp_status',
-            status,
-            clientId,
-            timestamp: Date.now() / 1000,
-        });
+        try {
+            if (!this.gateway) {
+                this.logger.warn(`⚠️ Gateway not available for client ${clientId}, skipping status update`);
+                return;
+            }
+            this.gateway.sendMessageToClient(clientId, {
+                type: 'whatsapp_status',
+                status,
+                clientId,
+                timestamp: Date.now() / 1000,
+            });
+        } catch (error) {
+            this.logger.error(`❌ Error emitting status update for client ${clientId}:`, error);
+        }
     }
 
     /**
@@ -280,7 +288,7 @@ export class WhatsAppService {
                     try {
                         const sessionData = JSON.parse(session.sessionData);
                         if (sessionData.qrCode) {
-                            return this.successResponse(null, 'QR code generated. Please scan to connect.');
+                            return this.successResponse({ qrCode: sessionData.qrCode }, 'QR code generated. Please scan to connect.');
                         }
                     } catch { }
                 }
@@ -326,6 +334,73 @@ export class WhatsAppService {
             return this.successResponse({ qrCode: sessionData.qrCode });
         } catch (error) {
             return this.errorResponse(error, `Error retrieving QR code: ${error.message}`);
+        }
+    }
+
+    async regenerateQRCode(clientId: string) {
+        try {
+            this.logger.log(`🔄 Regenerating QR code for client ${clientId}`);
+
+            // Check if client exists and get current status
+            const existingSession = await this.prisma.whatsAppSession.findFirst({
+                where: { clientId },
+                orderBy: { created_at: 'desc' },
+            });
+
+            if (!existingSession) {
+                return this.errorResponse(null, 'No WhatsApp session found. Please connect WhatsApp first.');
+            }
+
+            // If client is currently active, disconnect it first
+            if (existingSession.status === 'active') {
+                this.logger.log(`📴 Disconnecting active client ${clientId} before regenerating QR code`);
+                await this.disconnectWhatsApp(clientId);
+            }
+
+            // Remove existing client from memory if it exists
+            if (this.clients.has(clientId)) {
+                const client = this.clients.get(clientId);
+                try {
+                    await client.destroy();
+                } catch (destroyError) {
+                    this.logger.warn(`Warning: Could not destroy existing client: ${destroyError.message}`);
+                }
+                this.clients.delete(clientId);
+            }
+
+            // Update session status to pending
+            await this.updateSession(clientId, 'pending', { qrCode: null });
+
+            // Reinitialize the client to generate new QR code
+            await this.initializeClient(clientId);
+
+            // Wait a moment for QR code generation
+            await new Promise(resolve => setTimeout(resolve, 2000));
+
+            // Get the new QR code
+            const newSession = await this.prisma.whatsAppSession.findFirst({
+                where: { clientId },
+                orderBy: { created_at: 'desc' },
+            });
+
+            if (!newSession || !newSession.sessionData) {
+                return this.errorResponse(null, 'QR code generation in progress. Please wait a moment and try again.');
+            }
+
+            const sessionData = JSON.parse(newSession.sessionData);
+            if (!sessionData.qrCode) {
+                return this.errorResponse(null, 'QR code is being generated. Please wait a moment and try again.');
+            }
+
+            this.logger.log(`✅ QR code regenerated successfully for client ${clientId}`);
+            return this.successResponse({
+                qrCode: sessionData.qrCode,
+                message: 'QR code regenerated successfully. Please scan the new QR code to connect WhatsApp.'
+            });
+
+        } catch (error) {
+            this.logger.error(`❌ Error regenerating QR code for client ${clientId}:`, error);
+            return this.errorResponse(error, `Error regenerating QR code: ${error.message}`);
         }
     }
 
@@ -439,21 +514,9 @@ export class WhatsAppService {
     /**
      * Send a message to a phone number
      */
-    async sendMessage(clientId: string, contactId: string, message: string) {
+    async sendMessage(clientId: string, phoneNumber: string, message: string) {
         let sentMsg;
-        let phoneNumber = ''; // <-- Add this
         try {
-            // Enforce: contactId must be a contact of the client
-            const contact = await this.prisma.contact.findFirst({
-                where: {
-                    clientId,
-                    id: contactId,
-                },
-            });
-            if (!contact || !contact.phone_number) {
-                return this.errorResponse(null, 'You can only send messages to your own contacts with a valid phone number.');
-            }
-            phoneNumber = contact.phone_number;
             // First check and reconnect client if needed
             const healthCheck = await this.checkAndReconnectClient(clientId);
             if (!healthCheck.success) {
@@ -561,6 +624,14 @@ export class WhatsAppService {
                 }
             }
 
+            const contact = await this.prisma.contact.findFirst({
+                where: {
+                    phone_number: phoneNumber
+                }
+            })
+
+            const contactId = contact.id || "unknown contact"
+
             // Handle outgoing message through message handler
             await this.messageHandler.handleOutgoingMessage(clientId, {
                 contactId,
@@ -652,7 +723,7 @@ export class WhatsAppService {
                     action: 'SEND_MESSAGE',
                     level: 'error',
                     status: 'FAIL',
-                    entityId: contactId,
+                    entityId: phoneNumber,
                     error: error.message,
                     data: JSON.stringify({
                         phoneNumber,
@@ -683,7 +754,7 @@ export class WhatsAppService {
     /**
      * Send bulk messages to multiple phone numbers
      */
-    async sendBulkMessage(clientId: string, contactIds: string[], message: string) {
+    async sendBulkMessage(clientId: string, phoneNumbers: string[], message: string) {
         // First check and reconnect client if needed
         const healthCheck = await this.checkAndReconnectClient(clientId);
         if (!healthCheck.success) {
@@ -705,11 +776,11 @@ export class WhatsAppService {
         if (!user) {
             return { success: false, message: 'Client not found', data: [] };
         }
-        const requiredCredits = contactIds.length;
+        const requiredCredits = phoneNumbers.length;
         if ((user.credits ?? 0) < requiredCredits) {
             return {
                 success: false,
-                message: `Insufficient credits. You have ${user.credits ?? 0} credits, but ${requiredCredits} credits are required to send ${contactIds.length} messages.`,
+                message: `Insufficient credits. You have ${user.credits ?? 0} credits, but ${requiredCredits} credits are required to send ${phoneNumbers.length} messages.`,
                 data: []
             };
         }
@@ -728,31 +799,25 @@ export class WhatsAppService {
         }
         let successfulMessages = 0;
         let failedMessages = 0;
-        for (const contactId of contactIds) {
+        for (const phoneNumber of phoneNumbers) {
             try {
-                const contact = await this.prisma.contact.findFirst({
-                    where: { id: contactId, clientId },
-                });
-                if (!contact || !contact.phone_number) {
-                    results.push({
-                        contactId,
-                        success: false,
-                        message: 'Invalid contact or missing phone number'
-                    });
-                    failedMessages++;
-                    continue;
-                }
-                const phoneNumber = contact.phone_number;
                 const whatsappNumber = this.formatPhoneNumber(phoneNumber);
                 if (!whatsappNumber.includes('@c.us')) {
                     results.push({
-                        contactId,
+                        phoneNumber,
                         success: false,
                         message: 'Invalid phone number format'
                     });
                     failedMessages++;
                     continue;
                 }
+
+                // Find contact if exists
+                const contact = await this.prisma.contact.findFirst({
+                    where: { phone_number: phoneNumber }
+                });
+                const contactId = contact?.id || "unknown contact";
+
                 let chat;
                 try {
                     chat = await client.getChatById(whatsappNumber);
@@ -803,7 +868,7 @@ export class WhatsAppService {
                     },
                 });
                 results.push({
-                    contactId,
+                    phoneNumber,
                     success: true,
                     data: {
                         id: sentMsg.id?._serialized,
@@ -820,7 +885,7 @@ export class WhatsAppService {
                 await new Promise(resolve => setTimeout(resolve, 500));
             } catch (error) {
                 results.push({
-                    contactId,
+                    phoneNumber,
                     success: false,
                     message: error.message
                 });
@@ -856,10 +921,10 @@ export class WhatsAppService {
             data: {
                 results,
                 summary: {
-                    total: contactIds.length,
+                    total: phoneNumbers.length,
                     successful,
                     failed,
-                    successRate: (successful / contactIds.length) * 100,
+                    successRate: (successful / phoneNumbers.length) * 100,
                     creditsUsed: successfulMessages,
                     creditsRemaining: successfulMessages > 0 ? (await this.prisma.user.findUnique({
                         where: { id: clientId },
@@ -1738,18 +1803,11 @@ export class WhatsAppService {
      */
     async sendFileMessage(
         clientId: string,
-        contactId: string,
+        phoneNumber: string,
         file: Express.Multer.File,
         caption?: string
     ) {
-        // 1. Validate contact
-        const contact = await this.prisma.contact.findFirst({
-            where: { clientId, id: contactId },
-        });
-        if (!contact || !contact.phone_number) {
-            return { success: false, message: 'You can only send files to your own contacts with a valid phone number.' };
-        }
-        const whatsappNumber = this.formatPhoneNumber(contact.phone_number);
+        const whatsappNumber = this.formatPhoneNumber(phoneNumber);
 
         // 2. Check WhatsApp client/session
         const healthCheck = await this.checkAndReconnectClient(clientId);
@@ -1795,6 +1853,12 @@ export class WhatsAppService {
                 description: `Credit deducted for sending file to ${whatsappNumber}`,
             },
         });
+
+        // Find contact if exists
+        const contact = await this.prisma.contact.findFirst({
+            where: { phone_number: phoneNumber }
+        });
+        const contactId = contact?.id || "unknown contact";
 
         // 6. Delegate message and attachment creation to the message handler
         const handlerResult = await this.messageHandler.handleOutgoingMessage({

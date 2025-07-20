@@ -25,72 +25,114 @@ export class WhatsAppGateway implements OnGatewayConnection, OnGatewayDisconnect
 
     afterInit(server: Server) {
         console.log('🔌 WhatsApp WebSocket Gateway initialized');
+        console.log(`🔌 Server instance:`, server ? 'Available' : 'Not available');
+        this.server = server;
+        console.log(`🔌 Server assigned to instance:`, this.server ? 'Success' : 'Failed');
     }
 
     handleConnection(client: Socket) {
+        try {
+            if (!client) {
+                console.log(`⚠️ Client is undefined in handleConnection`);
+                return;
+            }
 
+            // Get clientId from query parameters
+            const clientId = client.handshake.query.clientId as string;
 
-        // Get clientId from query parameters
-        const clientId = client.handshake.query.clientId as string;
+            if (clientId) {
+                // Store the client mapping
+                this.clients.set(clientId, client.id);
 
-        if (clientId) {
-            // Store the client mapping
-            this.clients.set(clientId, client.id);
+                // Join the client to their specific room
+                console.log(`🔌 Client connected: ${client.id}`);
+                client.join(clientId);
 
-            // Join the client to their specific room
-            console.log(`🔌 Client connected: ${client.id}`);
-            client.join(clientId);
-
-            console.log(`✅ Client ${clientId} joined room ${clientId}`);
-        } else {
-            console.log(`⚠️ No clientId provided in query parameters`);
+                console.log(`✅ Client ${clientId} joined room ${clientId}`);
+            } else {
+                console.log(`⚠️ No clientId provided in query parameters`);
+            }
+        } catch (error) {
+            console.error(`❌ Error in handleConnection:`, error);
         }
     }
 
     handleDisconnect(client: Socket) {
-        console.log(`🔌 Client disconnected: ${client.id}`);
+        try {
+            if (!client) {
+                console.log(`⚠️ Client is undefined in handleDisconnect`);
+                return;
+            }
 
-        // Remove client from tracking
-        const clientId = [...this.clients.entries()].find(
-            ([, socketId]) => socketId === client.id
-        )?.[0];
+            console.log(`🔌 Client disconnected: ${client.id}`);
 
-        if (clientId) {
-            this.clients.delete(clientId);
-            console.log(`✅ Client ${clientId} removed from tracking`);
+            // Remove client from tracking
+            const clientId = [...this.clients.entries()].find(
+                ([, socketId]) => socketId === client.id
+            )?.[0];
+
+            if (clientId) {
+                this.clients.delete(clientId);
+                console.log(`✅ Client ${clientId} removed from tracking`);
+            }
+        } catch (error) {
+            console.error(`❌ Error in handleDisconnect:`, error);
         }
     }
 
     @SubscribeMessage('joinWhatsAppRoom')
     handleJoinRoom(client: Socket, @MessageBody() data: { clientId: string }) {
-        const { clientId } = data;
+        try {
+            if (!client) {
+                console.log(`⚠️ Client is undefined in handleJoinRoom`);
+                return;
+            }
 
-        // Join the client to their specific room
-        client.join(clientId);
+            const { clientId } = data;
 
-        // Store the client mapping
-        this.clients.set(clientId, client.id);
+            if (!clientId) {
+                console.log(`⚠️ No clientId provided in handleJoinRoom`);
+                return;
+            }
 
-        console.log(`✅ Client ${clientId} joined WhatsApp room via event`);
+            // Join the client to their specific room
+            client.join(clientId);
 
-        // Emit confirmation
-        client.emit('joinedWhatsAppRoom', { clientId });
+            // Store the client mapping
+            this.clients.set(clientId, client.id);
+
+            console.log(`✅ Client ${clientId} joined WhatsApp room via event`);
+
+            // Emit confirmation
+            client.emit('joinedWhatsAppRoom', { clientId });
+        } catch (error) {
+            console.error(`❌ Error in handleJoinRoom:`, error);
+        }
     }
 
     /**
      * Emit new message to a specific client
      */
     sendMessageToClient(clientId: string, message: any) {
-        console.log(`📤 Sending message to client ${clientId}:`, message);
+        try {
+            if (!this.server) {
+                console.log(`⚠️ WebSocket server not available, skipping message to client ${clientId}`);
+                return;
+            }
 
-        // Emit to the specific client room
-        this.server.to(clientId).emit('new_message', message);
+            console.log(`📤 Sending message to client ${clientId}:`, message);
 
-        // Also emit to all connected clients for debugging
-        this.server.emit('whatsapp_message', {
-            clientId,
-            message
-        });
+            // Emit to the specific client room
+            this.server.to(clientId).emit('new_message', message);
+
+            // Also emit to all connected clients for debugging
+            this.server.emit('whatsapp_message', {
+                clientId,
+                message
+            });
+        } catch (error) {
+            console.error(`❌ Error sending message to client ${clientId}:`, error);
+        }
     }
 
     /**

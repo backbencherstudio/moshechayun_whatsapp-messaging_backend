@@ -9,11 +9,6 @@ export class DashboardController {
 
   // @UseGuards(JwtAuthGuard) // Uncomment if you want to protect this route
 
-  @Get('global-stats')
-  async getGlobalStats() {
-    return this.dashboardService.getGlobalStats();
-  }
-
   @Get('stats')
   async getStats(@Request() req) {
     const clientId = req.user?.userId || req.query.clientId || req.params.clientId;
@@ -50,14 +45,23 @@ export class DashboardController {
     return this.dashboardService.getMessageStatusRatio(clientId);
   }
 
-  @Get('global-message-status-ratio')
-  async getGlobalMessageStatusRatio() {
-    return this.dashboardService.getGlobalMessageStatusRatio();
+  @Get('summary')
+  async getDashboardSummary(@Request() req) {
+    const clientId = req.user?.userId || req.query.clientId || req.params.clientId;
+    return this.dashboardService.getDashboardSummary(clientId);
   }
 
-  @Get('global-message-trends')
-  async getGlobalMessageTrends(@Request() req) {
-    const days = req.query.days ? parseInt(req.query.days, 10) : 7;
-    return this.dashboardService.getGlobalMessageTrends(days);
+  @Get('chart-data')
+  async getDashboardChartData(@Request() req) {
+    const clientId = req.user?.userId || req.query.clientId || req.params.clientId;
+    const days = req.query.days ? parseInt(req.query.days, 10) : 12;
+    return this.dashboardService.getDashboardChartData(clientId, days);
+  }
+
+  @Get('live-visitors')
+  async getLiveVisitors(@Request() req) {
+    const clientId = req.user?.userId || req.query.clientId || req.params.clientId;
+    const timeRange = req.query.timeRange || 'Live Now';
+    return this.dashboardService.getLiveVisitors(clientId, timeRange);
   }
 }

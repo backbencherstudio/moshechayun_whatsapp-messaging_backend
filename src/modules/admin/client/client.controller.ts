@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UploadedFile, UseInterceptors, UsePipes, ValidationPipe } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UploadedFile, UseInterceptors, UsePipes, ValidationPipe } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ClientService } from './client.service';
 import { CreateClientDto } from './dto/create-client.dto';
@@ -64,9 +64,15 @@ export class ClientController {
     return this.clientService.decrementCredits(id, amount, description);
   }
 
-  @Get(':id/credits/history')
-  getCreditHistory(@Param('id') id: string) {
-    return this.clientService.getCreditHistory(id);
+  @Get(':clientId/credits/history')
+  getClientCreditHistory(@Param('clientId') clientId: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('type') type?: string,
+  ) {
+    const start = startDate ? new Date(startDate) : undefined;
+    const end = endDate ? new Date(endDate) : undefined;
+    return this.clientService.getClientCreditHistory(clientId, start, end, type);
   }
 
   @Get(':id/credits')

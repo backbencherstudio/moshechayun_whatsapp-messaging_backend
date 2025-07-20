@@ -16,10 +16,10 @@ export class SendMessageDto {
     @IsNotEmpty()
     @IsString()
     @ApiProperty({
-        description: 'Contact ID to send message to (must be a contact of the client)',
-        example: 'clntct123456',
+        description: 'phone number',
+        example: '8801792239958',
     })
-    contactId: string;
+    phoneNumber: string;
 
     @IsNotEmpty()
     @IsString()

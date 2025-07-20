@@ -202,9 +202,15 @@ export class ClientService {
     return { success: true, data: client };
   }
 
-  async getCreditHistory(clientId: string) {
+
+  async getClientCreditHistory(clientId: string, startDate?: Date, endDate?: Date, type?: string) {
     const logs = await this.prisma.creditLog.findMany({
-      where: { clientId },
+      where: {
+        clientId,
+        ...(type && { type }),
+        ...(startDate && { createdAt: { gte: startDate } }),
+        ...(endDate && { createdAt: { lte: endDate } }),
+      },
       orderBy: { createdAt: 'desc' },
       include: {
         client: {
