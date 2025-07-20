@@ -11,6 +11,7 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { SojebStorage } from '../../common/lib/Disk/SojebStorage';
 import { DateHelper } from '../../common/helper/date.helper';
 import { StripePayment } from '../../common/lib/Payment/stripe/StripePayment';
+import * as bcrypt from 'bcrypt';
 import { StringHelper } from '../../common/helper/string.helper';
 
 @Injectable()
@@ -35,6 +36,7 @@ export class AuthService {
           address: true,
           phone_number: true,
           type: true,
+          credits: true,
           gender: true,
           date_of_birth: true,
           created_at: true,
@@ -137,6 +139,12 @@ export class AuthService {
 
         data.avatar = fileName;
       }
+
+      if (updateUserDto.password) {
+        const hashedPassword = await bcrypt.hash(updateUserDto.password, appConfig().security.salt);
+        data.password = hashedPassword;
+      }
+
       const user = await UserRepository.getUserDetails(userId);
       if (user) {
         await this.prisma.user.update({

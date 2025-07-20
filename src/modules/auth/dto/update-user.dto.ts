@@ -60,6 +60,9 @@ export class UpdateUserDto extends PartialType(CreateUserDto) {
   gender?: string;
 
   @IsOptional()
+  password?: string;
+
+  @IsOptional()
   @ApiProperty({
     description: 'Date of birth',
     example: '14/11/2001',

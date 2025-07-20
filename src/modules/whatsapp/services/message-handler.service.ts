@@ -507,6 +507,10 @@ export class MessageHandlerService {
      */
     private emitMessageToClient(clientId: string, messageData: any): void {
         try {
+            if (!this.gateway) {
+                this.logger.warn(`⚠️ Gateway not available for client ${clientId}, skipping WebSocket emission`);
+                return;
+            }
             this.gateway.sendMessageToClient(clientId, messageData);
         } catch (error) {
             this.logger.error(`❌ Error emitting message to client ${clientId}:`, error);

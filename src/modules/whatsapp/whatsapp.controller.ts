@@ -48,6 +48,17 @@ export class WhatsAppController {
     return await this.whatsappService.getQRCode(clientId);
   }
 
+  @Post('qr/regenerate')
+  @Roles(Role.CLIENT)
+  @ApiOperation({ summary: 'Regenerate QR code for WhatsApp connection' })
+  @ApiResponse({ status: 200, description: 'QR code regenerated successfully' })
+  @ApiResponse({ status: 400, description: 'Bad request' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async regenerateQRCode(@Request() req) {
+    const clientId = req.user.userId;
+    return await this.whatsappService.regenerateQRCode(clientId);
+  }
+
   @Get('status')
   @Roles(Role.CLIENT)
   @ApiOperation({ summary: 'Get WhatsApp connection status' })
@@ -77,7 +88,7 @@ export class WhatsAppController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async sendMessage(@Body() sendDto: SendMessageDto, @Request() req) {
     const clientId = req.user.userId;
-    return await this.whatsappService.sendMessage(clientId, sendDto.contactId, sendDto.message);
+    return await this.whatsappService.sendMessage(clientId, sendDto.phoneNumber, sendDto.message);
   }
 
   @Post('send-bulk')
@@ -88,7 +99,7 @@ export class WhatsAppController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async sendBulkMessage(@Body() bulkDto: SendBulkMessageDto, @Request() req) {
     const clientId = req.user.userId;
-    return await this.whatsappService.sendBulkMessage(clientId, bulkDto.contactIds, bulkDto.message);
+    return await this.whatsappService.sendBulkMessage(clientId, bulkDto.phoneNumbers, bulkDto.message);
   }
 
   @Post('send-file')
@@ -102,9 +113,9 @@ export class WhatsAppController {
     @UploadedFile() file: Express.Multer.File
   ) {
     const clientId = req.user.userId;
-    const contactId = body.contactId;
+    const phoneNumber = body.phoneNumber;
     const caption = body.caption;
-    return await this.whatsappService.sendFileMessage(clientId, contactId, file, caption);
+    return await this.whatsappService.sendFileMessage(clientId, phoneNumber, file, caption);
   }
 
   // Template Messaging
