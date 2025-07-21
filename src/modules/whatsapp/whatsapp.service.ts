@@ -945,13 +945,18 @@ export class WhatsAppService {
                 await client.destroy();
                 this.clients.delete(clientId);
             }
-            await this.prisma.whatsAppSession.updateMany({
-                where: { clientId },
-                data: { status: 'disconnected' }
-            });
+            // await this.prisma.whatsAppSession.updateMany({
+            //     where: { clientId },
+            //     data: { status: 'disconnected' }
+            // });
+            await this.prisma.whatsAppSession.deleteMany({
+                where: {
+                    clientId
+                }
+            })
             await this.prisma.message.deleteMany({ where: { clientId } });
             this.logger.log(`WhatsApp disconnected for client ${clientId} and all sessions updated`);
-            return this.successResponse(null, 'WhatsApp disconnected and all message history cleared.');
+            return this.successResponse('WhatsApp disconnected and all message history cleared.');
         } catch (error) {
             return this.errorResponse(error);
         }
