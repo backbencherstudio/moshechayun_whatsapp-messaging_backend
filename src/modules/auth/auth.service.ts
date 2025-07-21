@@ -33,13 +33,29 @@ export class AuthService {
           name: true,
           email: true,
           avatar: true,
-          address: true,
           phone_number: true,
           type: true,
           credits: true,
           gender: true,
           date_of_birth: true,
+          country: true,
+          city: true,
+          state: true,
+          zip_code: true,
+          address: true,
           created_at: true,
+          credit_logs: {
+            orderBy: { createdAt: 'desc' },
+            take: 7,
+            select: {
+              id: true,
+              amount: true,
+              action: true,
+              type: true,
+              description: true,
+              createdAt: true,
+            }
+          }
         },
       });
 
