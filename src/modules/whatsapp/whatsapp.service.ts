@@ -276,31 +276,42 @@ export class WhatsAppService {
                 return this.errorResponse(null, 'WhatsApp already connected');
             }
             await this.initializeClient(clientId);
+
             // Wait for QR code to be generated (max 30 seconds)
             let attempts = 0;
             const maxAttempts = 30;
             while (attempts < maxAttempts) {
-                const session = await this.prisma.whatsAppSession.findFirst({
-                    where: { clientId, status: 'pending' },
-                    orderBy: { created_at: 'desc' },
-                });
-                if (session && session.sessionData) {
-                    try {
-                        const sessionData = JSON.parse(session.sessionData);
-                        if (sessionData.qrCode) {
-                            return this.successResponse({ qrCode: sessionData.qrCode }, 'QR code generated. Please scan to connect.');
+                try {
+                    const session = await this.prisma.whatsAppSession.findFirst({
+                        where: { clientId, status: 'pending' },
+                        orderBy: { created_at: 'desc' },
+                    });
+                    if (session && session.sessionData) {
+                        try {
+                            const sessionData = JSON.parse(session.sessionData);
+                            if (sessionData.qrCode) {
+                                return this.successResponse({ qrCode: sessionData.qrCode }, 'QR code generated. Please scan to connect.');
+                            }
+                        } catch (parseError) {
+                            this.logger.error('Error parsing sessionData for QR code:', parseError);
                         }
-                    } catch { }
+                    }
+                } catch (dbError) {
+                    this.logger.error('Database error while polling for QR code:', dbError);
+                    return this.errorResponse(dbError, 'Database error while waiting for QR code.');
                 }
                 await new Promise(resolve => setTimeout(resolve, 1000));
                 attempts++;
             }
+            // If QR code was not generated in time, return a timeout error
             return this.errorResponse(null, 'QR code generation timeout. Please try again.');
+            // console.log(`🔄 QR code generation timeout for client ${clientId}, retrying...`);
+            // return this.getQRCode(clientId);
         } catch (error) {
-            return this.errorResponse(error);
+            this.logger.error('Unexpected error in connectWhatsApp:', error);
+            return this.errorResponse(error, error.message || 'Unknown error occurred during WhatsApp connection.');
         }
     }
-
     /**
      * Get QR code for a client
      */
@@ -426,6 +437,28 @@ export class WhatsAppService {
                 clientReady: isClientActive,
             },
         };
+    }
+
+    /**
+    * Disconnect WhatsApp for a client
+    */
+    async disconnectWhatsApp(clientId: string) {
+        try {
+            const client = this.clients.get(clientId);
+            if (client) {
+                // Log out from WhatsApp (removes from Linked Devices)
+                await client.logout();
+                // Destroy the client instance
+                await client.destroy();
+                this.clients.delete(clientId);
+            }
+            await this.prisma.whatsAppSession.deleteMany({ where: { clientId } });
+            await this.prisma.message.deleteMany({ where: { clientId } });
+            this.logger.log(`WhatsApp disconnected for client ${clientId} and all sessions updated`);
+            return this.successResponse('WhatsApp disconnected and all message history cleared.');
+        } catch (error) {
+            return this.errorResponse(error);
+        }
     }
 
     /**
@@ -934,34 +967,6 @@ export class WhatsAppService {
             }
         };
     }
-
-    /**
-     * Disconnect WhatsApp for a client
-     */
-    async disconnectWhatsApp(clientId: string) {
-        try {
-            const client = this.clients.get(clientId);
-            if (client) {
-                await client.destroy();
-                this.clients.delete(clientId);
-            }
-            // await this.prisma.whatsAppSession.updateMany({
-            //     where: { clientId },
-            //     data: { status: 'disconnected' }
-            // });
-            await this.prisma.whatsAppSession.deleteMany({
-                where: {
-                    clientId
-                }
-            })
-            await this.prisma.message.deleteMany({ where: { clientId } });
-            this.logger.log(`WhatsApp disconnected for client ${clientId} and all sessions updated`);
-            return this.successResponse('WhatsApp disconnected and all message history cleared.');
-        } catch (error) {
-            return this.errorResponse(error);
-        }
-    }
-
     /**
      * Format phone number for WhatsApp Web.js
      */
@@ -1765,7 +1770,6 @@ export class WhatsAppService {
             const template = await this.prisma.template.findFirst({
                 where: {
                     id: templateId,
-                    clientId
                 },
             });
 
