@@ -12,10 +12,6 @@ export class CreateTemplateDto {
 
     @IsString()
     @IsNotEmpty()
-    clientId: string;
-
-    @IsString()
-    @IsNotEmpty()
     businessType: string;
 
     @IsString()

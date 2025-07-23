@@ -38,6 +38,7 @@ export class WhatsAppController {
     return await this.whatsappService.connectWhatsApp(clientId);
   }
 
+
   @Get('qr')
   @Roles(Role.CLIENT)
   @ApiOperation({ summary: 'Get QR code for WhatsApp connection' })
