@@ -7,10 +7,10 @@ import { UpdateTemplateDto } from './dto/update-template.dto';
 export class TemplateService {
   constructor(private prisma: PrismaService) { }
 
-  async create(dto: CreateTemplateDto) {
+  async create(dto: CreateTemplateDto, userId: string) {
     try {
       const data = await this.prisma.template.create({
-        data: dto,
+        data: { ...dto, clientId: userId },
         select: {
           id: true,
           name: true,
@@ -43,6 +43,13 @@ export class TemplateService {
           variables: true,
           created_at: true,
           updated_at: true,
+          client: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
         },
       });
       return { success: true, data };
@@ -65,6 +72,13 @@ export class TemplateService {
           variables: true,
           created_at: true,
           updated_at: true,
+          client: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
         },
       });
       if (!data) return { success: false, message: 'Template not found' };

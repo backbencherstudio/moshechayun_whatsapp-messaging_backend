@@ -1,4 +1,5 @@
-import { IsEmail, IsOptional, IsString } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsEmail, IsOptional, IsString, IsNumber } from 'class-validator';
 
 export class CreateClientDto {
     @IsString()
@@ -25,4 +26,9 @@ export class CreateClientDto {
     @IsOptional()
     @IsString()
     avatar?: string;
+
+    @IsOptional()
+    @IsNumber()
+    @Transform(({ value }) => Number(value))
+    credits?: number;
 }

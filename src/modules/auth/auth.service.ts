@@ -44,6 +44,7 @@ export class AuthService {
           zip_code: true,
           address: true,
           created_at: true,
+          updated_at: true,
           credit_logs: {
             orderBy: { createdAt: 'desc' },
             take: 7,

@@ -47,26 +47,44 @@ export class ClientService {
     return { success: true, data: client };
   }
 
-  async findAll() {
-    const clients = await this.prisma.user.findMany({
-      where: { type: 'client' },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        phone_number: true,
-        user_type: true,
-        website: true,
-        created_at: true,
-        credits: true,
-        status: true,
-        avatar: true,
-      },
-    });
-
-    // Add avatar URL to each client
+  async findAll(page: number = 1, limit: number = 20) {
+    const offset = (page - 1) * limit;
+    const [clients, total] = await this.prisma.$transaction([
+      this.prisma.user.findMany({
+        where: { type: 'client' },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone_number: true,
+          user_type: true,
+          website: true,
+          created_at: true,
+          credits: true,
+          status: true,
+          avatar: true,
+        },
+        take: limit,
+        skip: offset,
+      }),
+      this.prisma.user.count({ where: { type: 'client' } })
+    ]);
     const clientsWithAvatar = clients.map(client => FileUrlHelper.addAvatarUrl(client));
-    return { success: true, data: clientsWithAvatar };
+    const totalPages = Math.ceil(total / limit);
+    const hasNextPage = page < totalPages;
+    const hasPreviousPage = page > 1;
+    return {
+      success: true,
+      data: clientsWithAvatar,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNextPage,
+        hasPreviousPage,
+      }
+    };
   }
 
   async findOne(id: string) {
@@ -115,6 +133,7 @@ export class ClientService {
     }
 
     let data = { ...updateClientDto };
+    console.log("updateClientDto", updateClientDto)
     if (updateClientDto.password) {
       data.password = await bcrypt.hash(updateClientDto.password, appConfig().security.salt);
     }
@@ -203,25 +222,50 @@ export class ClientService {
   }
 
 
-  async getClientCreditHistory(clientId: string, startDate?: Date, endDate?: Date, type?: string) {
-    const logs = await this.prisma.creditLog.findMany({
-      where: {
-        clientId,
-        ...(type && { type }),
-        ...(startDate && { createdAt: { gte: startDate } }),
-        ...(endDate && { createdAt: { lte: endDate } }),
-      },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        client: {
-          select: {
-            name: true,
-            credits: true
+  async getClientCreditHistory(startDate?: Date, endDate?: Date, type?: string, page: number = 1, limit: number = 20) {
+    const offset = (page - 1) * limit;
+    const [logs, total] = await this.prisma.$transaction([
+      this.prisma.creditLog.findMany({
+        where: {
+          ...(type && { type }),
+          ...(startDate && { createdAt: { gte: startDate } }),
+          ...(endDate && { createdAt: { lte: endDate } }),
+        },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          client: {
+            select: {
+              name: true,
+              credits: true
+            }
           }
-        }
+        },
+        take: limit,
+        skip: offset,
+      }),
+      this.prisma.creditLog.count({
+        where: {
+          ...(type && { type }),
+          ...(startDate && { createdAt: { gte: startDate } }),
+          ...(endDate && { createdAt: { lte: endDate } }),
+        },
+      })
+    ]);
+    const totalPages = Math.ceil(total / limit);
+    const hasNextPage = page < totalPages;
+    const hasPreviousPage = page > 1;
+    return {
+      success: true,
+      data: logs,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNextPage,
+        hasPreviousPage,
       }
-    });
-    return { success: true, data: logs };
+    };
   }
 
   async getMessageCredits(clientId: string) {
