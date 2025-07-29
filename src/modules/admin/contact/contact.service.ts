@@ -100,7 +100,7 @@ export class ContactService {
     }
   }
 
-  async findAll({ q = null, status = null, clientId = null }: { q?: string; status?: number; clientId?: string }) {
+  async findAll({ q = null, status = null, clientId = null, page = 1, limit = 10 }: { q?: string; status?: number; clientId?: string; page?: number; limit?: number }) {
     try {
       const whereClause = {};
 
@@ -126,38 +126,56 @@ export class ContactService {
         whereClause['clientId'] = clientId;
       }
 
-      const contacts = await this.prisma.contact.findMany({
-        where: whereClause,
-        select: {
-          id: true,
-          first_name: true,
-          last_name: true,
-          name: true,
-          email: true,
-          phone_number: true,
-          role: true,
-          avatar: true,
-          status: true,
-          created_at: true,
-          client: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
+      const offset = (page - 1) * limit;
+      const [contacts, total] = await this.prisma.$transaction([
+        this.prisma.contact.findMany({
+          where: whereClause,
+          select: {
+            id: true,
+            first_name: true,
+            last_name: true,
+            name: true,
+            email: true,
+            phone_number: true,
+            role: true,
+            avatar: true,
+            status: true,
+            created_at: true,
+            client: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              }
             }
-          }
-        },
-        orderBy: {
-          created_at: 'desc'
-        }
-      });
+          },
+          orderBy: {
+            created_at: 'desc'
+          },
+          take: limit,
+          skip: offset,
+        }),
+        this.prisma.contact.count({ where: whereClause })
+      ]);
 
       // Add avatar URL to each contact
       const contactsWithAvatar = contacts.map(contact => FileUrlHelper.addAvatarUrl(contact));
 
+      const totalPages = Math.ceil(total / limit);
+      const hasNextPage = page < totalPages;
+      const hasPreviousPage = page > 1;
+
       return {
         success: true,
         data: contactsWithAvatar,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+          hasNextPage,
+          hasPreviousPage,
+        },
       };
     } catch (error) {
       return {

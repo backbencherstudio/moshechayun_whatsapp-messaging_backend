@@ -1,10 +1,15 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UploadedFile, UseInterceptors, UsePipes, ValidationPipe } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UploadedFile, UseGuards, UseInterceptors, UsePipes, ValidationPipe } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ClientService } from './client.service';
 import { CreateClientDto } from './dto/create-client.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
+import { Roles } from 'src/common/guard/role/roles.decorator';
+import { Role } from 'src/common/guard/role/role.enum';
+import { JwtAuthGuard } from 'src/modules/auth/guards/jwt-auth.guard';
 
 @Controller('clients')
+@UseGuards(JwtAuthGuard)
+@Roles(Role.ADMIN)
 export class ClientController {
   constructor(private readonly clientService: ClientService) { }
 
@@ -19,8 +24,13 @@ export class ClientController {
   }
 
   @Get()
-  async findAll() {
-    return this.clientService.findAll();
+  async findAll(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const parsedPage = page ? parseInt(page, 10) : 1;
+    const parsedLimit = limit ? parseInt(limit, 10) : 10;
+    return this.clientService.findAll(parsedPage, parsedLimit);
   }
 
   @Get(':id')
@@ -51,6 +61,7 @@ export class ClientController {
     @Body('amount') amount: number,
     @Body('description') description?: string,
   ) {
+    console.log("amount", amount)
     return this.clientService.incrementCredits(id, amount, description);
   }
 
@@ -64,15 +75,20 @@ export class ClientController {
     return this.clientService.decrementCredits(id, amount, description);
   }
 
-  @Get(':clientId/credits/history')
-  getClientCreditHistory(@Param('clientId') clientId: string,
+  @Get('/credits/history')
+  getClientCreditHistory(
+    @Param('clientId') clientId: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('type') type?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
   ) {
     const start = startDate ? new Date(startDate) : undefined;
     const end = endDate ? new Date(endDate) : undefined;
-    return this.clientService.getClientCreditHistory(clientId, start, end, type);
+    const parsedPage = page ? parseInt(page, 10) : 1;
+    const parsedLimit = limit ? parseInt(limit, 10) : 20;
+    return this.clientService.getClientCreditHistory(start, end, type, parsedPage, parsedLimit);
   }
 
   @Get(':id/credits')

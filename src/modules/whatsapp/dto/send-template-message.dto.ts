@@ -5,11 +5,11 @@ export class SendTemplateMessageDto {
     @IsArray()
     @IsString({ each: true })
     @ApiProperty({
-        description: 'Array of contact IDs to send template message to',
-        example: ['clntct123456', 'clntct654321'],
+        description: 'Array of phone numbers to send template message to',
+        example: ['8801792239958', '8801792239959'],
         type: [String],
     })
-    contactIds: string[];
+    phoneNumbers: string[];
 
     @IsNotEmpty()
     @IsString()

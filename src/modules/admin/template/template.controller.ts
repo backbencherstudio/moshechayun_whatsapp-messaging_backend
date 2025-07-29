@@ -1,15 +1,21 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Query } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Query, UseGuards, Request } from '@nestjs/common';
 import { TemplateService } from './template.service';
 import { CreateTemplateDto } from './dto/create-template.dto';
 import { UpdateTemplateDto } from './dto/update-template.dto';
+import { JwtAuthGuard } from 'src/modules/auth/guards/jwt-auth.guard';
+import { Role } from 'src/common/guard/role/role.enum';
+import { Roles } from 'src/common/guard/role/roles.decorator';
 
+@UseGuards(JwtAuthGuard)
 @Controller('templates')
+@Roles(Role.ADMIN, Role.CLIENT)
 export class TemplateController {
   constructor(private readonly templateService: TemplateService) { }
 
   @Post()
-  create(@Body() dto: CreateTemplateDto) {
-    return this.templateService.create(dto);
+  create(@Body() dto: CreateTemplateDto, @Request() req) {
+    const userId = req.user.userId;
+    return this.templateService.create(dto, userId);
   }
 
   @Get()

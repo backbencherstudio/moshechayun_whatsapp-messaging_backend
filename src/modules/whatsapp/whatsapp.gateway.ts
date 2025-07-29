@@ -8,6 +8,7 @@ import {
     OnGatewayInit,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
+import { Logger } from '@nestjs/common';
 
 @WebSocketGateway({
     cors: {
@@ -20,63 +21,54 @@ export class WhatsAppGateway implements OnGatewayConnection, OnGatewayDisconnect
     @WebSocketServer()
     server: Server;
 
-    // Map to store connected clients: clientId -> socketId
+    private readonly logger = new Logger(WhatsAppGateway.name);
     private clients = new Map<string, string>();
 
     afterInit(server: Server) {
-        console.log('🔌 WhatsApp WebSocket Gateway initialized');
-        console.log(`🔌 Server instance:`, server ? 'Available' : 'Not available');
+        this.logger.log('WhatsApp WebSocket Gateway initialized');
         this.server = server;
-        console.log(`🔌 Server assigned to instance:`, this.server ? 'Success' : 'Failed');
     }
 
     handleConnection(client: Socket) {
         try {
             if (!client) {
-                console.log(`⚠️ Client is undefined in handleConnection`);
+                this.logger.warn('Client is undefined in handleConnection');
                 return;
             }
 
-            // Get clientId from query parameters
             const clientId = client.handshake.query.clientId as string;
 
             if (clientId) {
-                // Store the client mapping
                 this.clients.set(clientId, client.id);
-
-                // Join the client to their specific room
-                console.log(`🔌 Client connected: ${client.id}`);
                 client.join(clientId);
-
-                console.log(`✅ Client ${clientId} joined room ${clientId}`);
+                this.logger.log(`Client ${clientId} connected and joined room ${clientId}`);
             } else {
-                console.log(`⚠️ No clientId provided in query parameters`);
+                this.logger.warn('No clientId provided in query parameters');
             }
         } catch (error) {
-            console.error(`❌ Error in handleConnection:`, error);
+            this.logger.error('Error in handleConnection:', error);
         }
     }
 
     handleDisconnect(client: Socket) {
         try {
             if (!client) {
-                console.log(`⚠️ Client is undefined in handleDisconnect`);
+                this.logger.warn('Client is undefined in handleDisconnect');
                 return;
             }
 
-            console.log(`🔌 Client disconnected: ${client.id}`);
+            this.logger.log(`Client disconnected: ${client.id}`);
 
-            // Remove client from tracking
             const clientId = [...this.clients.entries()].find(
                 ([, socketId]) => socketId === client.id
             )?.[0];
 
             if (clientId) {
                 this.clients.delete(clientId);
-                console.log(`✅ Client ${clientId} removed from tracking`);
+                this.logger.log(`Client ${clientId} removed from tracking`);
             }
         } catch (error) {
-            console.error(`❌ Error in handleDisconnect:`, error);
+            this.logger.error('Error in handleDisconnect:', error);
         }
     }
 
@@ -84,60 +76,106 @@ export class WhatsAppGateway implements OnGatewayConnection, OnGatewayDisconnect
     handleJoinRoom(client: Socket, @MessageBody() data: { clientId: string }) {
         try {
             if (!client) {
-                console.log(`⚠️ Client is undefined in handleJoinRoom`);
+                this.logger.warn('Client is undefined in handleJoinRoom');
                 return;
             }
 
             const { clientId } = data;
 
             if (!clientId) {
-                console.log(`⚠️ No clientId provided in handleJoinRoom`);
+                this.logger.warn('No clientId provided in handleJoinRoom');
                 return;
             }
 
-            // Join the client to their specific room
             client.join(clientId);
+            this.logger.log(`Client ${client.id} joined WhatsApp room ${clientId}`);
 
-            // Store the client mapping
-            this.clients.set(clientId, client.id);
-
-            console.log(`✅ Client ${clientId} joined WhatsApp room via event`);
-
-            // Emit confirmation
-            client.emit('joinedWhatsAppRoom', { clientId });
+            client.emit('roomJoined', {
+                room: clientId,
+                timestamp: new Date().toISOString(),
+            });
         } catch (error) {
-            console.error(`❌ Error in handleJoinRoom:`, error);
+            this.logger.error('Error in handleJoinRoom:', error);
         }
     }
 
-    /**
-     * Emit new message to a specific client
-     */
+    @SubscribeMessage('joinConversation')
+    handleJoinConversation(client: Socket, @MessageBody() data: { clientId: string; conversationId: string }) {
+        try {
+            if (!client) {
+                this.logger.warn('Client is undefined in handleJoinConversation');
+                return;
+            }
+
+            const { clientId, conversationId } = data;
+
+            if (!clientId || !conversationId) {
+                this.logger.warn('Missing clientId or conversationId in handleJoinConversation');
+                return;
+            }
+
+            const conversationRoom = `conversation_${clientId}_${conversationId}`;
+            client.join(conversationRoom);
+            this.logger.log(`Client ${client.id} joined conversation room ${conversationRoom}`);
+
+            client.emit('conversationJoined', {
+                conversationId: conversationId,
+                room: conversationRoom,
+                timestamp: new Date().toISOString(),
+            });
+        } catch (error) {
+            this.logger.error('Error in handleJoinConversation:', error);
+        }
+    }
+
+    @SubscribeMessage('leaveConversation')
+    handleLeaveConversation(client: Socket, @MessageBody() data: { clientId: string; conversationId: string }) {
+        try {
+            if (!client) {
+                this.logger.warn('Client is undefined in handleLeaveConversation');
+                return;
+            }
+
+            const { clientId, conversationId } = data;
+
+            if (!clientId || !conversationId) {
+                this.logger.warn('Missing clientId or conversationId in handleLeaveConversation');
+                return;
+            }
+
+            const conversationRoom = `conversation_${clientId}_${conversationId}`;
+            client.leave(conversationRoom);
+            this.logger.log(`Client ${client.id} left conversation room ${conversationRoom}`);
+
+            client.emit('conversationLeft', {
+                conversationId: conversationId,
+                room: conversationRoom,
+                timestamp: new Date().toISOString(),
+            });
+        } catch (error) {
+            this.logger.error('Error in handleLeaveConversation:', error);
+        }
+    }
+
     sendMessageToClient(clientId: string, message: any) {
         try {
             if (!this.server) {
-                console.log(`⚠️ WebSocket server not available, skipping message to client ${clientId}`);
+                this.logger.warn('WebSocket server not available');
                 return;
             }
 
-            console.log(`📤 Sending message to client ${clientId}:`, message);
-
-            // Emit to the specific client room
-            this.server.to(clientId).emit('new_message', message);
-
-            // Also emit to all connected clients for debugging
-            this.server.emit('whatsapp_message', {
-                clientId,
-                message
-            });
+            const socketId = this.clients.get(clientId);
+            if (socketId) {
+                this.server.to(socketId).emit('whatsapp_message', message);
+                this.logger.log(`Message sent to client ${clientId}`);
+            } else {
+                this.logger.warn(`Client ${clientId} not found in connected clients`);
+            }
         } catch (error) {
-            console.error(`❌ Error sending message to client ${clientId}:`, error);
+            this.logger.error(`Error sending message to client ${clientId}:`, error);
         }
     }
 
-    /**
-     * Get connected clients (for debugging)
-     */
     getConnectedClients() {
         return Array.from(this.clients.keys());
     }

@@ -24,6 +24,8 @@ import { RolesGuard } from '../../../common/guard/role/roles.guard';
 @ApiBearerAuth()
 @ApiTags('contact')
 @Controller('contact')
+@UseGuards(JwtAuthGuard)
+@Roles(Role.ADMIN, Role.CLIENT)
 export class ContactController {
   constructor(private readonly contactService: ContactService) { }
 

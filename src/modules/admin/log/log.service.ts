@@ -8,7 +8,8 @@ export class LogService {
 
     async findAll(query: GetLogDto) {
         try {
-            const { clientId, type, page = 1, pageSize = 20, startDate, endDate, receiver, status } = query;
+            const { clientId, type, page = 1, pageSize = 10, startDate, endDate, receiver, status } = query
+
             const where: any = {};
             if (clientId) where.clientId = clientId;
             if (type) where.type = type;
@@ -81,14 +82,18 @@ export class LogService {
                 });
             }
 
+            // Pagination info (after filtering)
+            const totalPages = Math.ceil(total / pageSize);
             return {
                 success: true,
                 data: processedData,
                 pagination: {
-                    total: processedData.length, // Use filtered count
                     page,
-                    pageSize,
-                    totalPages: Math.ceil(processedData.length / pageSize),
+                    limit: pageSize,
+                    total,
+                    totalPages,
+                    hasNextPage: page < totalPages,
+                    hasPreviousPage: page > 1
                 },
             };
         } catch (error) {

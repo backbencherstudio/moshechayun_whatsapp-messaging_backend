@@ -1,7 +1,6 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Request, UseInterceptors, UploadedFile } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
 import { WhatsAppService } from './whatsapp.service';
-import { MessageHandlerService } from './services/message-handler.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guard/role/roles.guard';
 import { Roles } from '../../common/guard/role/roles.decorator';
@@ -11,9 +10,7 @@ import { SendMessageDto } from './dto/send-message.dto';
 import { SendBulkMessageDto } from './dto/send-bulk-message.dto';
 import { SendTemplateMessageDto } from './dto/send-template-message.dto';
 import { PreviewTemplateDto } from './dto/preview-template.dto';
-import { GetConversationMessagesDto } from './dto/get-conversation-messages.dto';
 import { GetCreditHistoryDto } from './dto/get-credit-history.dto';
-import { GetAllMessagesDto } from './dto/get-all-messages.dto';
 import { FileInterceptor } from '@nestjs/platform-express';
 
 @ApiTags('WhatsApp')
@@ -23,7 +20,6 @@ import { FileInterceptor } from '@nestjs/platform-express';
 export class WhatsAppController {
   constructor(
     private readonly whatsappService: WhatsAppService,
-    private readonly messageHandler: MessageHandlerService,
   ) { }
 
   // Connection Management
@@ -37,7 +33,6 @@ export class WhatsAppController {
     const clientId = req.user.userId;
     return await this.whatsappService.connectWhatsApp(clientId);
   }
-
 
   @Get('qr')
   @Roles(Role.CLIENT)
@@ -105,24 +100,24 @@ export class WhatsAppController {
 
   @Post('send-file')
   @Roles(Role.CLIENT)
-  @ApiOperation({ summary: 'Send a WhatsApp file (media) message' })
-  @ApiConsumes('multipart/form-data')
   @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Send a file via WhatsApp' })
+  @ApiResponse({ status: 200, description: 'File sent successfully' })
+  @ApiResponse({ status: 400, description: 'Bad request' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
   async sendFileMessage(
     @Body() body: any,
     @Request() req,
     @UploadedFile() file: Express.Multer.File
   ) {
     const clientId = req.user.userId;
-    const phoneNumber = body.phoneNumber;
-    const caption = body.caption;
-    return await this.whatsappService.sendFileMessage(clientId, phoneNumber, file, caption);
+    return await this.whatsappService.sendFileMessage(clientId, body.phoneNumber, file, body.caption);
   }
 
-  // Template Messaging
   @Post('send-template')
   @Roles(Role.CLIENT)
-  @ApiOperation({ summary: 'Send message using template' })
+  @ApiOperation({ summary: 'Send a template message' })
   @ApiResponse({ status: 200, description: 'Template message sent successfully' })
   @ApiResponse({ status: 400, description: 'Bad request' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
@@ -130,15 +125,15 @@ export class WhatsAppController {
     const clientId = req.user.userId;
     return await this.whatsappService.sendTemplateMessage(
       clientId,
-      templateDto.contactIds,
+      templateDto.phoneNumbers,
       templateDto.templateId,
-      templateDto.variables || {}
+      templateDto.variables
     );
   }
 
   @Post('preview-template')
   @Roles(Role.CLIENT)
-  @ApiOperation({ summary: 'Preview template with variables' })
+  @ApiOperation({ summary: 'Preview a template message' })
   @ApiResponse({ status: 200, description: 'Template preview generated successfully' })
   @ApiResponse({ status: 400, description: 'Bad request' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
@@ -147,70 +142,14 @@ export class WhatsAppController {
     return await this.whatsappService.previewTemplate(
       clientId,
       previewDto.templateId,
-      previewDto.variables || {}
+      previewDto.variables
     );
   }
 
-  @Get('templates')
+  // Conversations and Messages
+  @Get('conversations')
   @Roles(Role.CLIENT)
-  @ApiOperation({ summary: 'Get all templates for a client' })
-  @ApiResponse({ status: 200, description: 'Templates retrieved successfully' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async getTemplates(@Request() req) {
-    const clientId = req.user.userId;
-    return await this.whatsappService.getTemplates(clientId);
-  }
-
-  @Get('templates/:templateId')
-  @Roles(Role.CLIENT)
-  @ApiOperation({ summary: 'Get a specific template by ID' })
-  @ApiResponse({ status: 200, description: 'Template retrieved successfully' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async getTemplate(@Param('templateId') templateId: string, @Request() req) {
-    const clientId = req.user.userId;
-    return await this.whatsappService.getTemplate(templateId, clientId);
-  }
-
-  // Credit Management
-  @Get('credits')
-  @Roles(Role.CLIENT)
-  @ApiOperation({ summary: 'Get client credit information' })
-  @ApiResponse({ status: 200, description: 'Credit info retrieved successfully' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async getClientCredits(@Request() req) {
-    const clientId = req.user.userId;
-    return await this.whatsappService.getClientCredits(clientId);
-  }
-
-  @Get('credits/history')
-  @Roles(Role.CLIENT)
-  @ApiOperation({ summary: 'Get client credit history' })
-  @ApiResponse({ status: 200, description: 'Credit history retrieved successfully' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async getCreditHistory(@Query() query: GetCreditHistoryDto, @Request() req) {
-    const clientId = req.user.userId;
-    const limit = query.limit || 50;
-    const offset = query.offset || 0;
-    return await this.whatsappService.getCreditHistory(clientId, limit, offset);
-  }
-
-
-
-  // Message Management
-  @Get('messages/stats')
-  @Roles(Role.CLIENT)
-  @ApiOperation({ summary: 'Get message statistics for a client' })
-  @ApiResponse({ status: 200, description: 'Statistics retrieved successfully' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async getMessageStats(@Request() req) {
-    const clientId = req.user.userId;
-    return await this.messageHandler.getMessageStats(clientId);
-  }
-
-  // Message Handler Endpoints
-  @Get('messages/conversations')
-  @Roles(Role.CLIENT)
-  @ApiOperation({ summary: 'Get all conversations for a client' })
+  @ApiOperation({ summary: 'Get all conversations' })
   @ApiResponse({ status: 200, description: 'Conversations retrieved successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async getConversations(@Request() req) {
@@ -226,85 +165,34 @@ export class WhatsAppController {
   async getConversationMessages(
     @Request() req,
     @Param('phoneNumber') phoneNumber: string,
-    @Query('limit') limit: number = 50,
-    @Query('offset') offset: number = 0,
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 20,
   ) {
     const clientId = req.user.userId;
-    return await this.whatsappService.getConversationMessages(
-      clientId,
-      phoneNumber,
-      limit,
-      offset,
-    );
+    return await this.whatsappService.getConversationMessages(clientId, phoneNumber, limit, 0, page);
   }
 
-  @Get('messages/all')
+  @Post('messages/conversations/:phoneNumber/mark-read')
   @Roles(Role.CLIENT)
-  @ApiOperation({ summary: 'Get all messages for a client' })
-  @ApiResponse({ status: 200, description: 'Messages retrieved successfully' })
+  @ApiOperation({ summary: 'Mark messages as read for a conversation' })
+  @ApiResponse({ status: 200, description: 'Messages marked as read successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async getAllMessages(
+  async markMessagesAsRead(
     @Request() req,
-    @Query('limit') limit: number = 100,
-    @Query('offset') offset: number = 0,
+    @Param('phoneNumber') phoneNumber: string,
   ) {
     const clientId = req.user.userId;
-    return await this.whatsappService.getAllMessages(clientId, limit, offset);
+    return await this.whatsappService.markMessagesAsRead(clientId, phoneNumber);
   }
 
-  @Get('messages/inbox')
+  // Sync and Maintenance
+  @Post('sync')
   @Roles(Role.CLIENT)
-  @ApiOperation({ summary: 'Get inbox summary for a client' })
-  @ApiResponse({ status: 200, description: 'Inbox retrieved successfully' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async getInbox(@Request() req) {
-    const clientId = req.user.userId;
-    return await this.whatsappService.getInbox(clientId);
-  }
-
-  @Post('messages/sync')
-  @Roles(Role.CLIENT)
-  @ApiOperation({ summary: 'Manually sync all messages from WhatsApp' })
+  @ApiOperation({ summary: 'Sync messages from WhatsApp' })
   @ApiResponse({ status: 200, description: 'Messages synced successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async syncMessages(@Request() req) {
     const clientId = req.user.userId;
     return await this.whatsappService.syncAllMessages(clientId);
-  }
-
-  // Admin endpoints (for system management)
-  @Get('admin/sessions')
-  @Roles(Role.ADMIN)
-  @ApiOperation({ summary: 'Get active WhatsApp sessions status (Admin only)' })
-  @ApiResponse({ status: 200, description: 'Sessions status retrieved successfully' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 403, description: 'Forbidden - Admin access required' })
-  async getActiveSessionsStatus() {
-    return await this.whatsappService.getActiveSessionsStatus();
-  }
-
-  @Post('admin/cleanup')
-  @Roles(Role.ADMIN)
-  @ApiOperation({ summary: 'Clean up old messages for all clients (Admin only)' })
-  @ApiResponse({ status: 200, description: 'Cleanup completed successfully' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 403, description: 'Forbidden - Admin access required' })
-  async cleanupAllClients() {
-    return await this.whatsappService.cleanupAllClients();
-  }
-
-  // Health check endpoint
-  @Get('health')
-  @ApiOperation({ summary: 'Health check for WhatsApp service' })
-  @ApiResponse({ status: 200, description: 'Service is healthy' })
-  async healthCheck() {
-    return {
-      success: true,
-      data: {
-        status: 'healthy',
-        timestamp: new Date().toISOString(),
-        service: 'WhatsApp Service',
-      },
-    };
   }
 }
