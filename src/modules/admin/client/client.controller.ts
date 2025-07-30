@@ -3,6 +3,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ClientService } from './client.service';
 import { CreateClientDto } from './dto/create-client.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
+import { SearchClientDto } from './dto/search-client.dto';
 import { Roles } from 'src/common/guard/role/roles.decorator';
 import { Role } from 'src/common/guard/role/role.enum';
 import { JwtAuthGuard } from 'src/modules/auth/guards/jwt-auth.guard';
@@ -24,13 +25,9 @@ export class ClientController {
   }
 
   @Get()
-  async findAll(
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-  ) {
-    const parsedPage = page ? parseInt(page, 10) : 1;
-    const parsedLimit = limit ? parseInt(limit, 10) : 10;
-    return this.clientService.findAll(parsedPage, parsedLimit);
+  @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
+  async findAll(@Query() searchParams: SearchClientDto) {
+    return this.clientService.findAll(searchParams);
   }
 
   @Get(':id')

@@ -8,6 +8,7 @@ import { StringHelper } from 'src/common/helper/string.helper';
 import { UcodeRepository } from 'src/common/repository/ucode/ucode.repository';
 import { FileUrlHelper } from 'src/common/helper/file-url.helper';
 import * as bcrypt from 'bcrypt';
+import { SearchClientDto } from './dto/search-client.dto';
 
 
 
@@ -47,11 +48,26 @@ export class ClientService {
     return { success: true, data: client };
   }
 
-  async findAll(page: number = 1, limit: number = 20) {
+  async findAll(searchParams: SearchClientDto) {
+    const { search, page = 1, limit = 10 } = searchParams;
     const offset = (page - 1) * limit;
+
+    // Build where conditions
+    const whereConditions: any = { type: 'client' };
+
+    // Add search functionality
+    if (search) {
+      whereConditions.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+        { phone_number: { contains: search, mode: 'insensitive' } },
+        { website: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
     const [clients, total] = await this.prisma.$transaction([
       this.prisma.user.findMany({
-        where: { type: 'client' },
+        where: whereConditions,
         select: {
           id: true,
           name: true,
@@ -66,8 +82,9 @@ export class ClientService {
         },
         take: limit,
         skip: offset,
+        orderBy: { created_at: 'desc' },
       }),
-      this.prisma.user.count({ where: { type: 'client' } })
+      this.prisma.user.count({ where: whereConditions })
     ]);
     const clientsWithAvatar = clients.map(client => FileUrlHelper.addAvatarUrl(client));
     const totalPages = Math.ceil(total / limit);
