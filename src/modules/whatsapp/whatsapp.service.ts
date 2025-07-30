@@ -10,6 +10,7 @@ import { MessageType } from './dto/send-message.dto';
 import { SojebStorage } from 'src/common/lib/Disk/SojebStorage';
 import appConfig from 'src/config/app.config';
 import { MessageStatus } from '@prisma/client';
+import { FileUrlHelper } from 'src/common/helper/file-url.helper';
 
 @Injectable()
 export class WhatsAppService {
@@ -1013,7 +1014,7 @@ export class WhatsAppService {
 
 
     /**
- * Clean up old messages to keep only the 200 most recent per conversation
+ * Clean up old messages to keep only the 100 most recent per conversation
  */
     private async cleanupOldMessages(clientId: string) {
         try {
@@ -1039,25 +1040,25 @@ export class WhatsAppService {
             for (const conversation of conversations) {
                 if (!conversation.from) continue;
 
-                // Get the 200th most recent message timestamp for this conversation
-                const twoHundredthMessage = await this.prisma.message.findFirst({
+                // Get the 100th most recent message timestamp for this conversation
+                const hundredthMessage = await this.prisma.message.findFirst({
                     where: {
                         clientId,
                         from: conversation.from
                     },
                     orderBy: { timestamp: 'desc' },
-                    skip: 199, // Skip first 199 to get the 200th
+                    skip: 99, // Skip first 99 to get the 100th
                     select: { timestamp: true }
                 });
 
-                if (twoHundredthMessage) {
-                    // Delete all messages older than the 200th most recent for this conversation
+                if (hundredthMessage) {
+                    // Delete all messages older than the 100th most recent for this conversation
                     const deletedCount = await this.prisma.message.deleteMany({
                         where: {
                             clientId,
                             from: conversation.from,
                             timestamp: {
-                                lt: twoHundredthMessage.timestamp
+                                lt: hundredthMessage.timestamp
                             }
                         }
                     });
@@ -1147,24 +1148,24 @@ export class WhatsAppService {
                     for (const conversation of conversations) {
                         if (!conversation.from) continue;
 
-                        // Get the 200th most recent message timestamp for this conversation
-                        const twoHundredthMessage = await this.prisma.message.findFirst({
+                        // Get the 100th most recent message timestamp for this conversation
+                        const hundredthMessage = await this.prisma.message.findFirst({
                             where: {
                                 clientId: client.id,
                                 from: conversation.from
                             },
                             orderBy: { timestamp: 'desc' },
-                            skip: 199, // Skip first 199 to get the 200th
+                            skip: 99, // Skip first 99 to get the 100th
                             select: { timestamp: true }
                         });
 
-                        if (twoHundredthMessage) {
+                        if (hundredthMessage) {
                             const deletedCount = await this.prisma.message.deleteMany({
                                 where: {
                                     clientId: client.id,
                                     from: conversation.from,
                                     timestamp: {
-                                        lt: twoHundredthMessage.timestamp
+                                        lt: hundredthMessage.timestamp
                                     }
                                 }
                             });
@@ -1224,7 +1225,7 @@ export class WhatsAppService {
                 this.prisma.message.findMany({
                     where: { clientId },
                     orderBy: { timestamp: 'desc' },
-                    take: 200,
+                    take: 100,
                     select: {
                         id: true,
                         timestamp: true,
@@ -1238,7 +1239,7 @@ export class WhatsAppService {
                 data: {
                     totalMessages,
                     recentMessageCount: recentMessages.length,
-                    messageLimit: 200,
+                    messageLimit: 100,
                     oldestMessageInMemory: recentMessages.length > 0 ? recentMessages[recentMessages.length - 1].timestamp : null,
                     newestMessageInMemory: recentMessages.length > 0 ? recentMessages[0].timestamp : null,
                 }
@@ -1419,20 +1420,34 @@ export class WhatsAppService {
                         }
                     }
 
+                    // Process attachment URL if present
+                    let processedLatestMessage = null;
+                    if (latestMessage) {
+                        processedLatestMessage = {
+                            ...latestMessage,
+                            preview: latestMessage.body ||
+                                (latestMessage.type === 'image' ? 'Photo' :
+                                    latestMessage.type === 'video' ? 'Video' :
+                                        latestMessage.type === 'audio' ? 'Audio' :
+                                            latestMessage.type === 'document' ? 'Document' :
+                                                latestMessage.type === 'sticker' ? 'Sticker' : ''),
+                        };
+
+                        // Add attachment URL if present
+                        if (latestMessage.attachment && latestMessage.attachment.name) {
+                            processedLatestMessage.attachment = {
+                                ...latestMessage.attachment,
+                                url: SojebStorage.url(
+                                    appConfig().storageUrl.attachment + latestMessage.attachment.name,
+                                ),
+                            };
+                        }
+                    }
+
                     return {
                         phoneNumber: conv.from,
                         messageCount: conv._count.id,
-                        lastMessage: latestMessage
-                            ? {
-                                ...latestMessage,
-                                preview: latestMessage.body ||
-                                    (latestMessage.type === 'image' ? 'Photo' :
-                                        latestMessage.type === 'video' ? 'Video' :
-                                            latestMessage.type === 'audio' ? 'Audio' :
-                                                latestMessage.type === 'document' ? 'Document' :
-                                                    latestMessage.type === 'sticker' ? 'Sticker' : ''),
-                            }
-                            : null,
+                        lastMessage: processedLatestMessage,
                         lastActivity: conv._max.timestamp,
                         userId: user?.id || null,
                         name: user?.name || identifier || null,
@@ -1555,12 +1570,32 @@ export class WhatsAppService {
             // This mimics WhatsApp Web behavior where messages are displayed chronologically
             // but the conversation list shows most recent first
             const chronologicalMessages = messages.reverse().map(msg => {
-                if (msg.attachment && msg.attachment.file) {
+                if (msg.attachment && msg.attachment.name) {
                     return {
                         ...msg,
                         attachment: {
                             ...msg.attachment,
-                            url: SojebStorage.url(appConfig().storageUrl.attachment + msg.attachment.file),
+                            url: SojebStorage.url(
+                                appConfig().storageUrl.attachment + msg.attachment.name,
+                            ),
+                        },
+                    };
+                } else if (msg.type && ['image', 'video', 'audio', 'document', 'media', 'sticker'].includes(msg.type)) {
+                    // For messages with media types but no attachments, provide a placeholder
+                    return {
+                        ...msg,
+                        attachment: {
+                            id: null,
+                            name: null,
+                            type: msg.type === 'image' ? 'image/jpeg' :
+                                msg.type === 'video' ? 'video/mp4' :
+                                    msg.type === 'audio' ? 'audio/mp3' :
+                                        msg.type === 'document' ? 'application/pdf' :
+                                            'application/octet-stream',
+                            size: 0,
+                            file: null,
+                            url: null,
+                            needsFix: true, // Flag to indicate this needs the fix endpoint
                         },
                     };
                 }
@@ -1652,12 +1687,12 @@ export class WhatsAppService {
                         unreadCount,
                     },
                     recentMessages: recentMessages.map(msg => {
-                        if (msg.attachment && msg.attachment.file) {
+                        if (msg.attachment && msg.attachment.name) {
                             return {
                                 ...msg,
                                 attachment: {
                                     ...msg.attachment,
-                                    url: SojebStorage.url(appConfig().storageUrl.attachment + msg.attachment.file),
+                                    url: SojebStorage.url(appConfig().storageUrl.attachment + msg.attachment.name),
                                 },
                             };
                         }
@@ -1967,18 +2002,29 @@ export class WhatsAppService {
             where: { phone_number: phoneNumber }
         });
         const contactId = contact?.id || "unknown contact";
-
         // 6. Save message to database directly
-        const fileName = file.originalname;
-        const attachment = await this.prisma.attachment.create({
-            data: {
-                name: fileName,
-                type: file.mimetype,
-                size: file.size,
-                file: fileName,
-                file_alt: '',
-            },
-        });
+        let fileName = null;
+        if (file) {
+            fileName = FileUrlHelper.generateRandomFileName(file.originalname);
+            await SojebStorage.put(
+                appConfig().storageUrl.attachment + fileName,
+                file.buffer,
+            );
+        }
+
+        // Only create attachment if we have a file
+        let attachment = null;
+        if (fileName) {
+            attachment = await this.prisma.attachment.create({
+                data: {
+                    name: fileName,
+                    type: file.mimetype,
+                    size: file.size,
+                    file: fileName,
+                    file_alt: '',
+                },
+            });
+        }
 
         // Get client number from session
         const session = await this.prisma.whatsAppSession.findFirst({
@@ -2004,12 +2050,12 @@ export class WhatsAppService {
                 timestamp: new Date(sentMsg.timestamp * 1000),
                 messageId: sentMsg.id._serialized,
                 direction: 'OUTBOUND',
-                attachment_id: attachment.id,
+                attachment_id: attachment?.id || undefined,
             },
         });
 
         const handlerResult = {
-            attachmentId: attachment.id,
+            attachmentId: attachment?.id || null,
             fileUrl: null, // File is stored locally, no URL needed
             savedMessageId: savedMessage.id,
         };
@@ -2259,6 +2305,116 @@ export class WhatsAppService {
         }
     }
 
+
+
+    /**
+     * Fix messages with media types but no attachments
+     */
+    async fixMessagesWithoutAttachments(clientId: string) {
+        try {
+            this.logger.log(`Fixing messages without attachments for client ${clientId}`);
+
+            // Find messages that have media types but no attachments
+            const messagesWithoutAttachments = await this.prisma.message.findMany({
+                where: {
+                    clientId,
+                    type: {
+                        in: ['image', 'video', 'audio', 'document', 'media', 'sticker']
+                    },
+                    attachment_id: null,
+                    messageId: {
+                        not: null
+                    }
+                },
+                select: {
+                    id: true,
+                    messageId: true,
+                    type: true,
+                    from: true,
+                    to: true,
+                    timestamp: true
+                }
+            });
+
+            this.logger.log(`Found ${messagesWithoutAttachments.length} messages without attachments`);
+
+            let fixedCount = 0;
+            let errorCount = 0;
+
+            for (const message of messagesWithoutAttachments) {
+                try {
+                    // Try to get the message from WhatsApp to download media
+                    const client = this.clients.get(clientId);
+                    if (!client) {
+                        this.logger.warn(`Client ${clientId} not available for message ${message.messageId}`);
+                        continue;
+                    }
+
+                    // Get the message from WhatsApp
+                    const whatsappMessage = await client.getMessageById(message.messageId);
+                    if (!whatsappMessage || !whatsappMessage.hasMedia) {
+                        this.logger.log(`Message ${message.messageId} has no media or not found`);
+                        continue;
+                    }
+
+                    // Download media
+                    const media = await whatsappMessage.downloadMedia();
+                    if (!media) {
+                        this.logger.log(`Could not download media for message ${message.messageId}`);
+                        continue;
+                    }
+
+                    // Save attachment
+                    const buffer = Buffer.from(media.data, 'base64');
+                    const fileName = FileUrlHelper.generateRandomFileName(message.messageId);
+                    const storagePath = appConfig().storageUrl.attachment + fileName;
+
+                    await SojebStorage.put(storagePath, buffer);
+
+                    const attachment = await this.prisma.attachment.create({
+                        data: {
+                            name: fileName,
+                            type: media.mimetype || 'application/octet-stream',
+                            size: buffer.length,
+                            file: fileName,
+                            file_alt: '',
+                        },
+                    });
+
+                    // Update message with attachment
+                    await this.prisma.message.update({
+                        where: { id: message.id },
+                        data: { attachment_id: attachment.id }
+                    });
+
+                    fixedCount++;
+                    this.logger.log(`Fixed message ${message.messageId} with attachment ${attachment.id}`);
+
+                } catch (error) {
+                    errorCount++;
+                    this.logger.error(`Error fixing message ${message.messageId}:`, error);
+                }
+            }
+
+            return {
+                success: true,
+                data: {
+                    totalFound: messagesWithoutAttachments.length,
+                    fixedCount,
+                    errorCount,
+                    timestamp: new Date().toISOString(),
+                }
+            };
+
+        } catch (error) {
+            this.logger.error('Error fixing messages without attachments:', error);
+            return {
+                success: false,
+                message: error.message,
+            };
+        }
+    }
+
     /**
      * Get all messages for a client (including both sent and received)
      */
@@ -2295,10 +2451,26 @@ export class WhatsAppService {
                 }),
             ]);
 
+            // Process attachments to include URLs
+            const processedMessages = messages.map(msg => {
+                if (msg.attachment && msg.attachment.name) {
+                    return {
+                        ...msg,
+                        attachment: {
+                            ...msg.attachment,
+                            url: SojebStorage.url(
+                                appConfig().storageUrl.attachment + msg.attachment.name,
+                            ),
+                        },
+                    };
+                }
+                return msg;
+            });
+
             return {
                 success: true,
                 data: {
-                    messages,
+                    messages: processedMessages,
                     pagination: {
                         total: totalCount,
                         limit,

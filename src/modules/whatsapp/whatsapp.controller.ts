@@ -195,4 +195,14 @@ export class WhatsAppController {
     const clientId = req.user.userId;
     return await this.whatsappService.syncAllMessages(clientId);
   }
+
+  @Post('fix-attachments')
+  @Roles(Role.CLIENT)
+  @ApiOperation({ summary: 'Fix messages with media types but no attachments' })
+  @ApiResponse({ status: 200, description: 'Attachments fixed successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async fixAttachments(@Request() req) {
+    const clientId = req.user.userId;
+    return await this.whatsappService.fixMessagesWithoutAttachments(clientId);
+  }
 }
