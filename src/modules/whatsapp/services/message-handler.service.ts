@@ -4,7 +4,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { WhatsAppGateway } from '../whatsapp.gateway';
 import { SojebStorage } from 'src/common/lib/Disk/SojebStorage';
 import appConfig from 'src/config/app.config';
-import { StringHelper } from 'src/common/helper/string.helper';
+import { FileUrlHelper } from 'src/common/helper/file-url.helper';
 import { PBXService } from '../pbx/pbx.service';
 import { Client } from 'whatsapp-web.js';
 
@@ -32,10 +32,10 @@ export class MessageHandlerService {
 
             this.logger.log(`Processing incoming message for client ${clientId}: ${message.id._serialized}`);
 
-            // Skip saving if message body is empty
-            if (!message.body) {
-                this.logger.log(`Skipping message ${message.id._serialized} (empty body)`);
-                return { success: false, skipped: true, reason: 'Empty body' };
+            // Skip saving if message body is empty (but allow media messages with base64 data in body)
+            if (!message.body && !message.hasMedia) {
+                this.logger.log(`Skipping message ${message.id._serialized} (empty body and no media)`);
+                return { success: false, skipped: true, reason: 'Empty body and no media' };
             }
 
             // Check if message already exists to avoid duplicates
@@ -59,9 +59,10 @@ export class MessageHandlerService {
             let fileUrl = null;
             if (messageData.mediaUrl) {
                 const buffer = Buffer.from(messageData.mediaUrl.split(',')[1], 'base64');
-                const fileName = StringHelper.generateRandomFileName(message.id._serialized);
+                const fileName = FileUrlHelper.generateRandomFileName(message.id._serialized);
                 const storagePath = appConfig().storageUrl.attachment + fileName;
-                fileUrl = await SojebStorage.put(storagePath, buffer);
+                await SojebStorage.put(storagePath, buffer);
+                fileUrl = SojebStorage.url(storagePath);
                 const attachment = await this.prisma.attachment.create({
                     data: {
                         name: fileName,
@@ -80,7 +81,7 @@ export class MessageHandlerService {
                     clientId,
                     from: message.from,
                     to: message.to || null,
-                    body: message.body,
+                    body: message.hasMedia && message.body && (message.body.startsWith('/9j/') || message.body.startsWith('iVBORw0KGgo') || message.body.startsWith('R0lGODlh')) ? '' : message.body, // Don't save base64 data in body for media messages
                     type: message.type || 'chat',
                     timestamp: new Date(message.timestamp * 1000),
                     messageId: message.id._serialized,
@@ -89,7 +90,7 @@ export class MessageHandlerService {
                 },
             });
 
-            this.logger.log(`Message saved to database: ${savedMessage.id}`);
+
 
             // Broadcast incoming message to WebSocket clients (individual only)
             try {
@@ -107,7 +108,7 @@ export class MessageHandlerService {
                     messageId: message.id._serialized,
                     from: message.from,
                     to: message.to || null,
-                    body: message.body,
+                    body: savedMessage.body, // Use the saved body (empty for media messages)
                     timestamp: savedMessage.timestamp,
                     type: message.type || 'chat',
                     direction: 'INBOUND',
@@ -118,6 +119,7 @@ export class MessageHandlerService {
                         url: fileUrl,
                         type: messageData.mimeType || 'application/octet-stream',
                         size: messageData.mediaUrl ? Buffer.from(messageData.mediaUrl.split(',')[1], 'base64').length : 0,
+                        name: messageData.mediaUrl ? FileUrlHelper.generateRandomFileName(message.id._serialized) : null,
                     } : null,
                 };
 
@@ -137,7 +139,7 @@ export class MessageHandlerService {
                     conversationId: conversationId,
                 });
 
-                this.logger.log(`Broadcasted incoming message to room: ${conversationRoom}`);
+
             } catch (broadcastError) {
                 this.logger.error('Error broadcasting incoming message:', broadcastError);
             }
@@ -161,10 +163,20 @@ export class MessageHandlerService {
 
         try {
             if (message.hasMedia) {
-                const media = await message.downloadMedia();
-                if (media) {
-                    messageData.mimeType = media.mimetype;
-                    messageData.mediaUrl = `data:${media.mimetype};base64,${media.data}`;
+                // Check if the body contains base64 image data (starts with /9j/ for JPEG)
+                if (message.body && (message.body.startsWith('/9j/') || message.body.startsWith('iVBORw0KGgo') || message.body.startsWith('R0lGODlh'))) {
+                    // Image data is already in the body as base64
+                    const mimeType = message.type === 'image' ? 'image/jpeg' : 'image/jpeg';
+
+                    messageData.mimeType = mimeType;
+                    messageData.mediaUrl = `data:${mimeType};base64,${message.body}`;
+                } else {
+                    // Try to download media using WhatsApp Web.js
+                    const media = await message.downloadMedia();
+                    if (media) {
+                        messageData.mimeType = media.mimetype;
+                        messageData.mediaUrl = `data:${media.mimetype};base64,${media.data}`;
+                    }
                 }
             }
         } catch (error) {
