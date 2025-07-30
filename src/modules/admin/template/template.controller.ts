@@ -1,7 +1,8 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Query, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Query, UseGuards, Request, UsePipes, ValidationPipe } from '@nestjs/common';
 import { TemplateService } from './template.service';
 import { CreateTemplateDto } from './dto/create-template.dto';
 import { UpdateTemplateDto } from './dto/update-template.dto';
+import { SearchTemplateDto } from './dto/search-template.dto';
 import { JwtAuthGuard } from 'src/modules/auth/guards/jwt-auth.guard';
 import { Role } from 'src/common/guard/role/role.enum';
 import { Roles } from 'src/common/guard/role/roles.decorator';
@@ -19,8 +20,9 @@ export class TemplateController {
   }
 
   @Get()
-  findAll(@Query('clientId') clientId: string) {
-    return this.templateService.findAll(clientId);
+  @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
+  findAll(@Query('clientId') clientId: string, @Query() searchParams: SearchTemplateDto) {
+    return this.templateService.findAll(clientId, searchParams);
   }
 
   @Get(':id')

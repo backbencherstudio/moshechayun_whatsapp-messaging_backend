@@ -29,30 +29,78 @@ export class TemplateService {
     }
   }
 
-  async findAll(clientId: string) {
+  async findAll(clientId: string, searchParams: any = {}) {
     try {
-      const data = await this.prisma.template.findMany({
-        where: { clientId },
-        select: {
-          id: true,
-          name: true,
-          content: true,
-          clientId: true,
-          businessType: true,
-          category: true,
-          variables: true,
-          created_at: true,
-          updated_at: true,
-          client: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
+      const { search, category, businessType, page = 1, limit = 20 } = searchParams;
+      const offset = (page - 1) * limit;
+
+      // Build where conditions
+      const whereConditions: any = { clientId };
+
+      // Add search functionality
+      if (search) {
+        whereConditions.OR = [
+          { name: { contains: search, mode: 'insensitive' } },
+          { content: { contains: search, mode: 'insensitive' } },
+          { category: { contains: search, mode: 'insensitive' } },
+          { businessType: { contains: search, mode: 'insensitive' } },
+        ];
+      }
+
+      // Add category filter
+      if (category) {
+        whereConditions.category = { contains: category, mode: 'insensitive' };
+      }
+
+      // Add business type filter
+      if (businessType) {
+        whereConditions.businessType = { contains: businessType, mode: 'insensitive' };
+      }
+
+      const [templates, total] = await this.prisma.$transaction([
+        this.prisma.template.findMany({
+          where: whereConditions,
+          select: {
+            id: true,
+            name: true,
+            content: true,
+            clientId: true,
+            businessType: true,
+            category: true,
+            variables: true,
+            created_at: true,
+            updated_at: true,
+            client: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
             },
           },
-        },
-      });
-      return { success: true, data };
+          orderBy: { created_at: 'desc' },
+          take: limit,
+          skip: offset,
+        }),
+        this.prisma.template.count({ where: whereConditions })
+      ]);
+
+      const totalPages = Math.ceil(total / limit);
+      const hasNextPage = page < totalPages;
+      const hasPreviousPage = page > 1;
+
+      return {
+        success: true,
+        data: templates,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+          hasNextPage,
+          hasPreviousPage,
+        }
+      };
     } catch (error) {
       return { success: false, message: error.message };
     }
