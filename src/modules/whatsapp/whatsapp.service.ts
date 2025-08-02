@@ -16,6 +16,10 @@ import { FileUrlHelper } from 'src/common/helper/file-url.helper';
 export class WhatsAppService {
     private readonly logger = new Logger(WhatsAppService.name);
     private clients = new Map<string, Client>();
+    private qrCodeCache = new Map<string, { qrCode: string; timestamp: number }>();
+    private initializationPromises = new Map<string, Promise<void>>();
+    private readonly QR_CACHE_TTL = 30000; // 30 seconds
+    private readonly INITIALIZATION_TIMEOUT = 15000; // 15 seconds instead of 30
 
     constructor(
         private prisma: PrismaService,
@@ -24,6 +28,7 @@ export class WhatsAppService {
     ) {
         this.restoreActiveSessions();
         this.startPeriodicAutoSync();
+        this.startQRCodeCacheCleanup();
         MessageHandlerService.clients = this.clients;
     }
 
@@ -40,6 +45,28 @@ export class WhatsAppService {
     }
 
     /**
+     * Get cached QR code if still valid
+     */
+    private getCachedQRCode(clientId: string): string | null {
+        const cached = this.qrCodeCache.get(clientId);
+        if (cached && Date.now() - cached.timestamp < this.QR_CACHE_TTL) {
+            return cached.qrCode;
+        }
+        this.qrCodeCache.delete(clientId);
+        return null;
+    }
+
+    /**
+     * Cache QR code with timestamp
+     */
+    private cacheQRCode(clientId: string, qrCode: string) {
+        this.qrCodeCache.set(clientId, {
+            qrCode,
+            timestamp: Date.now()
+        });
+    }
+
+    /**
      * Restore active WhatsApp sessions on startup
      */
     async restoreActiveSessions() {
@@ -50,21 +77,23 @@ export class WhatsAppService {
 
             this.logger.log(`Restoring ${activeSessions.length} active WhatsApp sessions`);
 
-            for (const session of activeSessions) {
-                await this.initializeClient(session.clientId);
-            }
+            // Initialize clients in parallel for faster restoration
+            const initializationPromises = activeSessions.map(session =>
+                this.initializeClient(session.clientId)
+            );
+
+            await Promise.allSettled(initializationPromises);
 
             this.logger.log(`Restored ${this.clients.size} WhatsApp sessions`);
 
             // Auto-sync messages after restoration
             setTimeout(async () => {
-                for (const session of activeSessions) {
-                    try {
-                        await this.syncAllMessages(session.clientId);
-                    } catch (error) {
-                        this.logger.error(`Auto-sync failed for client ${session.clientId}:`, error);
-                    }
-                }
+                const syncPromises = activeSessions.map(session =>
+                    this.syncAllMessages(session.clientId).catch(error =>
+                        this.logger.error(`Auto-sync failed for client ${session.clientId}:`, error)
+                    )
+                );
+                await Promise.allSettled(syncPromises);
             }, 10000);
         } catch (error) {
             this.logger.error('Failed to restore active sessions:', error);
@@ -80,6 +109,26 @@ export class WhatsAppService {
             return;
         }
 
+        // Check if initialization is already in progress
+        if (this.initializationPromises.has(clientId)) {
+            this.logger.log(`Initialization already in progress for: ${clientId}`);
+            return this.initializationPromises.get(clientId);
+        }
+
+        const initPromise = this.performClientInitialization(clientId);
+        this.initializationPromises.set(clientId, initPromise);
+
+        try {
+            await initPromise;
+        } finally {
+            this.initializationPromises.delete(clientId);
+        }
+    }
+
+    /**
+     * Perform the actual client initialization with optimized settings
+     */
+    private async performClientInitialization(clientId: string) {
         this.logger.log(`Initializing WhatsApp client for: ${clientId}`);
 
         const client = new Client({
@@ -93,8 +142,18 @@ export class WhatsAppService {
                     '--disable-accelerated-2d-canvas',
                     '--no-first-run',
                     '--no-zygote',
-                    '--disable-gpu'
+                    '--disable-gpu',
+                    '--disable-web-security',
+                    '--disable-features=VizDisplayCompositor',
+                    '--disable-background-timer-throttling',
+                    '--disable-backgrounding-occluded-windows',
+                    '--disable-renderer-backgrounding',
+                    '--disable-field-trial-config',
+                    '--disable-ipc-flooding-protection',
+                    '--memory-pressure-off',
+                    '--max_old_space_size=4096'
                 ],
+                timeout: this.INITIALIZATION_TIMEOUT,
             },
         });
 
@@ -102,7 +161,13 @@ export class WhatsAppService {
         this.clients.set(clientId, client);
 
         try {
-            await client.initialize();
+            // Set a timeout for initialization
+            const initPromise = client.initialize();
+            const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('Initialization timeout')), this.INITIALIZATION_TIMEOUT)
+            );
+
+            await Promise.race([initPromise, timeoutPromise]);
             this.logger.log(`WhatsApp client initialized for ${clientId}`);
             await this.updateSession(clientId, 'active');
         } catch (error) {
@@ -110,6 +175,7 @@ export class WhatsAppService {
             this.clients.delete(clientId);
             await this.updateSession(clientId, 'failed');
             await this.logError(clientId, 'client_initialization_error', error);
+            throw error;
         }
     }
 
@@ -118,8 +184,28 @@ export class WhatsAppService {
      */
     private setupEventHandlers(client: Client, clientId: string) {
         client.on('qr', async (qr) => {
-            const qrCode = await qrcode.toDataURL(qr);
-            await this.updateSession(clientId, 'pending', { qr, qrCode });
+            try {
+                // Generate QR code with optimized settings
+                const qrCode = await qrcode.toDataURL(qr, {
+                    errorCorrectionLevel: 'M',
+                    type: 'image/png',
+                    margin: 1,
+                    width: 256
+                });
+
+                // Cache the QR code
+                this.cacheQRCode(clientId, qrCode);
+
+                // Update session with both raw QR and data URL
+                await this.updateSession(clientId, 'pending', { qr, qrCode });
+
+                // Emit real-time QR code via WebSocket
+                this.emitQRCodeUpdate(clientId, qrCode);
+
+                this.logger.log(`QR code generated for client ${clientId}`);
+            } catch (error) {
+                this.logger.error(`Error generating QR code for client ${clientId}:`, error);
+            }
         });
 
         client.on('ready', async () => {
@@ -127,6 +213,9 @@ export class WhatsAppService {
             await this.updateSession(clientId, 'active', { meNumber });
             this.logger.log(`WhatsApp connected for client ${clientId} as ${meNumber}`);
             this.emitStatusUpdate(clientId, 'connected');
+
+            // Clear QR code cache when connected
+            this.qrCodeCache.delete(clientId);
 
             try {
                 await this.syncAllMessages(clientId);
@@ -143,18 +232,40 @@ export class WhatsAppService {
             await this.updateSession(clientId, 'failed');
             this.logger.error(`WhatsApp auth failed for client ${clientId}`);
             this.emitStatusUpdate(clientId, 'auth_failed');
+            this.qrCodeCache.delete(clientId);
         });
 
         client.on('disconnected', async () => {
             await this.updateSession(clientId, 'disconnected');
             this.logger.log(`WhatsApp disconnected for client ${clientId}`);
             this.emitStatusUpdate(clientId, 'disconnected');
+            this.qrCodeCache.delete(clientId);
         });
 
         client.on('message_ack', async (msg, ack) => {
             const status = this.mapAckToStatus(ack);
             await this.updateMessageStatus(msg.id._serialized, status);
         });
+    }
+
+    /**
+     * Emit QR code update via WebSocket for real-time delivery
+     */
+    private emitQRCodeUpdate(clientId: string, qrCode: string) {
+        try {
+            if (!this.gateway) {
+                this.logger.warn(`Gateway not available for client ${clientId}`);
+                return;
+            }
+            this.gateway.sendMessageToClient(clientId, {
+                type: 'qr_code_update',
+                qrCode,
+                clientId,
+                timestamp: Date.now() / 1000,
+            });
+        } catch (error) {
+            this.logger.error(`Error emitting QR code update for client ${clientId}:`, error);
+        }
     }
 
     /**
@@ -276,27 +387,51 @@ export class WhatsAppService {
                 return this.errorResponse(null, 'WhatsApp already connected');
             }
 
+            // Check for cached QR code first
+            const cachedQRCode = this.getCachedQRCode(clientId);
+            if (cachedQRCode) {
+                this.logger.log(`Returning cached QR code for client ${clientId}`);
+                return this.successResponse(
+                    { qrCode: cachedQRCode },
+                    'QR code retrieved from cache. Please scan to connect.'
+                );
+            }
+
             await this.initializeClient(clientId);
 
-            // Wait for QR code to be generated (max 30 seconds)
-            const maxAttempts = 30;
+            // Wait for QR code to be generated with optimized polling
+            const maxAttempts = 15; // Reduced from 30 to 15 seconds
             for (let attempts = 0; attempts < maxAttempts; attempts++) {
-                const session = await this.prisma.whatsAppSession.findFirst({
-                    where: { clientId, status: 'pending' },
-                    orderBy: { created_at: 'desc' },
-                });
+                // Check cache first
+                const cachedQR = this.getCachedQRCode(clientId);
+                if (cachedQR) {
+                    return this.successResponse(
+                        { qrCode: cachedQR },
+                        'QR code generated. Please scan to connect.'
+                    );
+                }
 
-                if (session?.sessionData) {
-                    try {
-                        const sessionData = JSON.parse(session.sessionData);
-                        if (sessionData.qrCode) {
-                            return this.successResponse(
-                                { qrCode: sessionData.qrCode },
-                                'QR code generated. Please scan to connect.'
-                            );
+                // Check database with longer intervals
+                if (attempts % 2 === 0) { // Check every 2 seconds instead of every second
+                    const session = await this.prisma.whatsAppSession.findFirst({
+                        where: { clientId, status: 'pending' },
+                        orderBy: { created_at: 'desc' },
+                    });
+
+                    if (session?.sessionData) {
+                        try {
+                            const sessionData = JSON.parse(session.sessionData);
+                            if (sessionData.qrCode) {
+                                // Cache the QR code for future requests
+                                this.cacheQRCode(clientId, sessionData.qrCode);
+                                return this.successResponse(
+                                    { qrCode: sessionData.qrCode },
+                                    'QR code generated. Please scan to connect.'
+                                );
+                            }
+                        } catch (error) {
+                            this.logger.error('Error parsing sessionData for QR code:', error);
                         }
-                    } catch (error) {
-                        this.logger.error('Error parsing sessionData for QR code:', error);
                     }
                 }
 
@@ -314,6 +449,13 @@ export class WhatsAppService {
      */
     async getQRCode(clientId: string) {
         try {
+            // Check cache first for fastest response
+            const cachedQRCode = this.getCachedQRCode(clientId);
+            if (cachedQRCode) {
+                this.logger.log(`Returning cached QR code for client ${clientId}`);
+                return this.successResponse({ qrCode: cachedQRCode });
+            }
+
             const session = await this.prisma.whatsAppSession.findFirst({
                 where: { clientId },
                 orderBy: { created_at: 'desc' },
@@ -344,6 +486,9 @@ export class WhatsAppService {
                 return this.errorResponse(null, 'QR code is being generated. Please wait a moment and try again.');
             }
 
+            // Cache the QR code for future requests
+            this.cacheQRCode(clientId, sessionData.qrCode);
+
             return this.successResponse({ qrCode: sessionData.qrCode });
         } catch (error) {
             return this.errorResponse(error, 'Error retrieving QR code');
@@ -362,6 +507,9 @@ export class WhatsAppService {
             if (!existingSession) {
                 return this.errorResponse(null, 'No WhatsApp session found. Please connect WhatsApp first.');
             }
+
+            // Clear any cached QR code
+            this.qrCodeCache.delete(clientId);
 
             // Disconnect active client if needed
             if (existingSession.status === 'active') {
@@ -384,29 +532,42 @@ export class WhatsAppService {
             await this.updateSession(clientId, 'pending', { qrCode: null });
             await this.initializeClient(clientId);
 
-            // Wait for QR code generation
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            // Wait for QR code generation with optimized polling
+            const maxAttempts = 10; // Reduced wait time
+            for (let attempts = 0; attempts < maxAttempts; attempts++) {
+                // Check cache first
+                const cachedQR = this.getCachedQRCode(clientId);
+                if (cachedQR) {
+                    this.logger.log(`QR code regenerated successfully for client ${clientId}`);
+                    return this.successResponse({
+                        qrCode: cachedQR,
+                        message: 'QR code regenerated successfully. Please scan the new QR code to connect WhatsApp.'
+                    });
+                }
 
-            // Get the new QR code
-            const newSession = await this.prisma.whatsAppSession.findFirst({
-                where: { clientId },
-                orderBy: { created_at: 'desc' },
-            });
+                // Check database
+                const newSession = await this.prisma.whatsAppSession.findFirst({
+                    where: { clientId },
+                    orderBy: { created_at: 'desc' },
+                });
 
-            if (!newSession?.sessionData) {
-                return this.errorResponse(null, 'QR code generation in progress. Please wait a moment and try again.');
+                if (newSession?.sessionData) {
+                    const sessionData = JSON.parse(newSession.sessionData);
+                    if (sessionData.qrCode) {
+                        // Cache the new QR code
+                        this.cacheQRCode(clientId, sessionData.qrCode);
+                        this.logger.log(`QR code regenerated successfully for client ${clientId}`);
+                        return this.successResponse({
+                            qrCode: sessionData.qrCode,
+                            message: 'QR code regenerated successfully. Please scan the new QR code to connect WhatsApp.'
+                        });
+                    }
+                }
+
+                await new Promise(resolve => setTimeout(resolve, 500)); // Faster polling
             }
 
-            const sessionData = JSON.parse(newSession.sessionData);
-            if (!sessionData.qrCode) {
-                return this.errorResponse(null, 'QR code is being generated. Please wait a moment and try again.');
-            }
-
-            this.logger.log(`QR code regenerated successfully for client ${clientId}`);
-            return this.successResponse({
-                qrCode: sessionData.qrCode,
-                message: 'QR code regenerated successfully. Please scan the new QR code to connect WhatsApp.'
-            });
+            return this.errorResponse(null, 'QR code regeneration timeout. Please try again.');
 
         } catch (error) {
             this.logger.error(`Error regenerating QR code for client ${clientId}:`, error);
@@ -509,8 +670,12 @@ export class WhatsAppService {
             }
 
             this.logger.log(`Auto-syncing messages for client ${clientId}...`);
-            await this.syncAllMessages(clientId);
-            this.logger.log(`Auto-sync completed for client ${clientId}`);
+            const syncResult = await this.syncAllMessages(clientId);
+            if (!syncResult.success) {
+                this.logger.error(`Auto-sync failed for client ${clientId}:`, syncResult.message);
+            } else {
+                this.logger.log(`Auto-sync completed for client ${clientId}: ${syncResult.data?.totalSynced || 0} messages synced`);
+            }
         } catch (error) {
             this.logger.error(`Auto-sync failed for client ${clientId}:`, error);
         }
@@ -539,6 +704,31 @@ export class WhatsAppService {
         }, 5 * 60 * 1000); // 5 minutes
 
         this.logger.log('Periodic auto-sync started (every 5 minutes)');
+    }
+
+    /**
+     * Start periodic QR code cache cleanup
+     */
+    private startQRCodeCacheCleanup() {
+        setInterval(() => {
+            try {
+                const now = Date.now();
+                let cleanedCount = 0;
+
+                for (const [clientId, cached] of this.qrCodeCache.entries()) {
+                    if (now - cached.timestamp > this.QR_CACHE_TTL) {
+                        this.qrCodeCache.delete(clientId);
+                        cleanedCount++;
+                    }
+                }
+
+                if (cleanedCount > 0) {
+                    this.logger.log(`Cleaned up ${cleanedCount} expired QR code cache entries`);
+                }
+            } catch (error) {
+                this.logger.error('QR code cache cleanup failed:', error);
+            }
+        }, 60 * 1000); // Every minute
     }
 
     /**
@@ -2104,17 +2294,80 @@ export class WhatsAppService {
     /**
      * Sync all messages from WhatsApp for a client
      */
-    async syncAllMessages(clientId: string) {
+    async syncAllMessages(clientId: string, retryCount: number = 0) {
+        const maxRetries = 2; // Prevent infinite recursion
+
+        if (retryCount >= maxRetries) {
+            this.logger.error(`Max retries (${maxRetries}) reached for client ${clientId}, aborting sync`);
+            return { success: false, message: 'Max retries reached for message sync' };
+        }
         try {
             const client = this.clients.get(clientId);
             if (!client) {
-                return { success: false, message: 'WhatsApp client not connected' };
+                this.logger.warn(`Client ${clientId} not found in memory, attempting to reconnect...`);
+                const healthCheck = await this.checkAndReconnectClient(clientId);
+                if (!healthCheck.success) {
+                    return { success: false, message: 'WhatsApp client not connected and reconnection failed' };
+                }
+                // Get the client again after reconnection
+                const reconnectedClient = this.clients.get(clientId);
+                if (!reconnectedClient) {
+                    return { success: false, message: 'Failed to get reconnected client' };
+                }
+                // Add a small delay before retry to avoid overwhelming the system
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                return await this.syncAllMessages(clientId, retryCount + 1); // Recursive call with reconnected client
+            }
+
+            // Check if client is properly initialized and ready
+            if (!client.info || !client.pupPage) {
+                this.logger.warn(`Client ${clientId} not ready, attempting to reconnect...`);
+                this.clients.delete(clientId);
+                const healthCheck = await this.checkAndReconnectClient(clientId);
+                if (!healthCheck.success) {
+                    return { success: false, message: 'WhatsApp client not ready and reconnection failed' };
+                }
+                // Get the client again after reconnection
+                const reconnectedClient = this.clients.get(clientId);
+                if (!reconnectedClient) {
+                    return { success: false, message: 'Failed to get reconnected client' };
+                }
+                // Add a small delay before retry to avoid overwhelming the system
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                return await this.syncAllMessages(clientId, retryCount + 1); // Recursive call with reconnected client
             }
 
             this.logger.log(`Starting message sync for client ${clientId}`);
 
-            // Get individual chats only
-            const chats = await client.getChats();
+            // Get individual chats only with error handling
+            let chats;
+            try {
+                chats = await client.getChats();
+            } catch (chatError) {
+                this.logger.error(`Failed to get chats for client ${clientId}:`, chatError);
+
+                // If getting chats fails, try to reconnect and retry once
+                this.logger.log(`Attempting to reconnect client ${clientId} due to chat fetch failure...`);
+                this.clients.delete(clientId);
+                const healthCheck = await this.checkAndReconnectClient(clientId);
+                if (!healthCheck.success) {
+                    return { success: false, message: 'Failed to get chats and reconnection failed' };
+                }
+
+                // Try again with reconnected client
+                const reconnectedClient = this.clients.get(clientId);
+                if (!reconnectedClient) {
+                    return { success: false, message: 'Failed to get reconnected client' };
+                }
+
+                try {
+                    chats = await reconnectedClient.getChats();
+                } catch (retryError) {
+                    this.logger.error(`Failed to get chats on retry for client ${clientId}:`, retryError);
+                    return { success: false, message: 'Failed to get chats after reconnection attempt' };
+                }
+            }
+
             const individualChats = chats.filter(chat => !chat.id._serialized.endsWith('@g.us'));
 
             let totalSynced = 0;
@@ -2124,8 +2377,14 @@ export class WhatsAppService {
                 try {
                     this.logger.log(`Syncing messages for individual chat: ${chat.id._serialized}`);
 
-                    // Get messages from this chat
-                    const messages = await chat.fetchMessages({ limit: 50 });
+                    // Get messages from this chat with error handling
+                    let messages;
+                    try {
+                        messages = await chat.fetchMessages({ limit: 50 });
+                    } catch (fetchError) {
+                        this.logger.error(`Failed to fetch messages for chat ${chat.id._serialized}:`, fetchError);
+                        continue; // Skip this chat and continue with others
+                    }
 
                     for (const message of messages) {
                         try {
@@ -2192,18 +2451,43 @@ export class WhatsAppService {
             // Clean up old messages after sync
             await this.cleanupOldMessages(clientId);
 
-            this.logger.log(`Message sync completed for client ${clientId}: ${totalSynced} synced, ${totalSkipped} skipped`);
+            // Log sync completion
+            await this.prisma.log.create({
+                data: {
+                    clientId,
+                    type: 'message_sync',
+                    action: 'SYNC_COMPLETED',
+                    level: 'info',
+                    status: 'SUCCESS',
+                    data: JSON.stringify({
+                        totalSynced,
+                        totalSkipped,
+                        totalChats: individualChats.length,
+                        timestamp: new Date().toISOString(),
+                    }),
+                    extra: {
+                        syncType: 'auto',
+                    },
+                },
+            });
+
+            this.logger.log(`Message sync completed for client ${clientId}: ${totalSynced} synced, ${totalSkipped} skipped from ${individualChats.length} chats`);
 
             return {
                 success: true,
                 data: {
                     totalSynced,
                     totalSkipped,
+                    totalChats: individualChats.length,
                     timestamp: new Date().toISOString(),
                 },
             };
         } catch (error) {
-            this.logger.error('Error syncing messages:', error);
+            this.logger.error(`Error syncing messages for client ${clientId}:`, error);
+
+            // Log the error to database
+            await this.logError(clientId, 'message_sync_error', error);
+
             return {
                 success: false,
                 message: error.message,
