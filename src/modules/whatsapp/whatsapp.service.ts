@@ -2432,7 +2432,7 @@ export class WhatsAppService {
 
                             if (existingMessage) {
                                 totalSkipped++;
-                                continue;
+                                continue; // Skip this message as it already exists
                             }
 
                             // Determine message direction
@@ -2451,18 +2451,69 @@ export class WhatsAppService {
 
                             const direction = message.fromMe ? 'OUTBOUND' : 'INBOUND';
 
-                            // Save message to database
-                            await this.prisma.message.create({
-                                data: {
+                            // Save message to database using upsert to handle duplicates gracefully
+                            let attachmentId = null;
+                            let fileUrl = null;
+
+                            // Handle media attachment if present
+                            if (message.hasMedia) {
+                                try {
+                                    this.logger.log(`Processing media message during sync: ${message.type}`);
+
+                                    // Extract media data
+                                    const media = await message.downloadMedia();
+                                    if (media) {
+                                        const buffer = Buffer.from(media.data, 'base64');
+                                        const fileName = FileUrlHelper.generateRandomFileName(message.id._serialized);
+                                        const storagePath = appConfig().storageUrl.attachment + fileName;
+
+                                        // Save file to storage
+                                        await SojebStorage.put(storagePath, buffer);
+                                        fileUrl = SojebStorage.url(storagePath);
+
+                                        // Create attachment record
+                                        const attachment = await this.prisma.attachment.create({
+                                            data: {
+                                                name: fileName,
+                                                type: media.mimetype,
+                                                size: buffer.length,
+                                                file: fileName,
+                                                file_alt: '',
+                                            },
+                                        });
+                                        attachmentId = attachment.id;
+
+                                        this.logger.log(`Successfully saved media attachment: ${media.mimetype}, size: ${buffer.length}`);
+                                    }
+                                } catch (mediaError) {
+                                    this.logger.error(`Error processing media during sync for message ${message.id._serialized}:`, mediaError);
+                                }
+                            }
+
+                            await this.prisma.message.upsert({
+                                where: {
+                                    messageId: message.id._serialized,
+                                },
+                                update: {
+                                    // Update fields if message already exists (though this shouldn't happen often)
+                                    body: message.hasMedia && message.body && (message.body.startsWith('/9j/') || message.body.startsWith('iVBORw0KGgo') || message.body.startsWith('R0lGODlh')) ? '' : message.body, // Don't save base64 data in body for media messages
+                                    type: message.type || 'chat',
+                                    timestamp: new Date(message.timestamp * 1000),
+                                    direction,
+                                    status: MessageStatus.READ,
+                                    attachment_id: attachmentId || undefined,
+                                },
+                                create: {
                                     clientId,
                                     from: message.from,
                                     to: message.to || null,
-                                    body: message.body,
+                                    body: message.hasMedia && message.body && (message.body.startsWith('/9j/') || message.body.startsWith('iVBORw0KGgo') || message.body.startsWith('R0lGODlh')) ? '' : message.body, // Don't save base64 data in body for media messages
                                     type: message.type || 'chat',
                                     timestamp: new Date(message.timestamp * 1000),
                                     messageId: message.id._serialized,
                                     direction,
-                                    status: MessageStatus.PENDING,
+                                    status: MessageStatus.READ,
+                                    attachment_id: attachmentId || undefined,
                                 },
                             });
 
