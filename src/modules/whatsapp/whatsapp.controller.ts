@@ -35,7 +35,7 @@ export class WhatsAppController {
   }
 
   @Get('qr')
-  @Roles(Role.CLIENT)
+  @Roles(Role.CLIENT, Role.ADMIN)
   @ApiOperation({ summary: 'Get QR code for WhatsApp connection' })
   @ApiResponse({ status: 200, description: 'QR code retrieved successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
@@ -45,7 +45,7 @@ export class WhatsAppController {
   }
 
   @Post('qr/regenerate')
-  @Roles(Role.CLIENT)
+  @Roles(Role.CLIENT, Role.ADMIN)
   @ApiOperation({ summary: 'Regenerate QR code for WhatsApp connection' })
   @ApiResponse({ status: 200, description: 'QR code regenerated successfully' })
   @ApiResponse({ status: 400, description: 'Bad request' })
@@ -56,7 +56,7 @@ export class WhatsAppController {
   }
 
   @Get('status')
-  @Roles(Role.CLIENT)
+  @Roles(Role.CLIENT, Role.ADMIN)
   @ApiOperation({ summary: 'Get WhatsApp connection status' })
   @ApiResponse({ status: 200, description: 'Connection status retrieved successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
@@ -66,7 +66,7 @@ export class WhatsAppController {
   }
 
   @Delete('disconnect')
-  @Roles(Role.CLIENT)
+  @Roles(Role.CLIENT, Role.ADMIN)
   @ApiOperation({ summary: 'Disconnect WhatsApp for a client' })
   @ApiResponse({ status: 200, description: 'WhatsApp disconnected successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
@@ -77,7 +77,7 @@ export class WhatsAppController {
 
   // Messaging
   @Post('send')
-  @Roles(Role.CLIENT)
+  @Roles(Role.CLIENT, Role.ADMIN)
   @ApiOperation({ summary: 'Send a WhatsApp message' })
   @ApiResponse({ status: 200, description: 'Message sent successfully' })
   @ApiResponse({ status: 400, description: 'Bad request' })
@@ -88,7 +88,7 @@ export class WhatsAppController {
   }
 
   @Post('send-bulk')
-  @Roles(Role.CLIENT)
+  @Roles(Role.CLIENT, Role.ADMIN)
   @ApiOperation({ summary: 'Send bulk WhatsApp messages' })
   @ApiResponse({ status: 200, description: 'Bulk messages sent successfully' })
   @ApiResponse({ status: 400, description: 'Bad request' })
@@ -99,7 +99,7 @@ export class WhatsAppController {
   }
 
   @Post('send-file')
-  @Roles(Role.CLIENT)
+  @Roles(Role.CLIENT, Role.ADMIN)
   @UseInterceptors(FileInterceptor('file'))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Send a file via WhatsApp' })
@@ -116,7 +116,7 @@ export class WhatsAppController {
   }
 
   @Post('send-template')
-  @Roles(Role.CLIENT)
+  @Roles(Role.CLIENT, Role.ADMIN)
   @ApiOperation({ summary: 'Send a template message' })
   @ApiResponse({ status: 200, description: 'Template message sent successfully' })
   @ApiResponse({ status: 400, description: 'Bad request' })
@@ -132,7 +132,7 @@ export class WhatsAppController {
   }
 
   @Post('preview-template')
-  @Roles(Role.CLIENT)
+  @Roles(Role.CLIENT, Role.ADMIN)
   @ApiOperation({ summary: 'Preview a template message' })
   @ApiResponse({ status: 200, description: 'Template preview generated successfully' })
   @ApiResponse({ status: 400, description: 'Bad request' })
@@ -148,7 +148,7 @@ export class WhatsAppController {
 
   // Conversations and Messages
   @Get('conversations')
-  @Roles(Role.CLIENT)
+  @Roles(Role.CLIENT, Role.ADMIN)
   @ApiOperation({ summary: 'Get all conversations' })
   @ApiResponse({ status: 200, description: 'Conversations retrieved successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
@@ -158,7 +158,7 @@ export class WhatsAppController {
   }
 
   @Get('messages/conversations/:phoneNumber')
-  @Roles(Role.CLIENT)
+  @Roles(Role.CLIENT, Role.ADMIN)
   @ApiOperation({ summary: 'Get messages for a specific conversation' })
   @ApiResponse({ status: 200, description: 'Messages retrieved successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
@@ -173,7 +173,7 @@ export class WhatsAppController {
   }
 
   @Post('messages/conversations/:phoneNumber/mark-read')
-  @Roles(Role.CLIENT)
+  @Roles(Role.CLIENT, Role.ADMIN)
   @ApiOperation({ summary: 'Mark messages as read for a conversation' })
   @ApiResponse({ status: 200, description: 'Messages marked as read successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
