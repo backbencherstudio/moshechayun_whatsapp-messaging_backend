@@ -24,7 +24,7 @@ export class WhatsAppController {
 
   // Connection Management
   @Post('connect')
-  @Roles(Role.CLIENT)
+  @Roles(Role.CLIENT, Role.ADMIN)
   @ApiOperation({ summary: 'Connect WhatsApp for a client' })
   @ApiResponse({ status: 200, description: 'WhatsApp connection initiated successfully' })
   @ApiResponse({ status: 400, description: 'Bad request' })
