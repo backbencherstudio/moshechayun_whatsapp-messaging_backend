@@ -759,15 +759,18 @@ export class WhatsAppService {
             // Check client credits before sending
             const user = await this.prisma.user.findUnique({
                 where: { id: clientId },
-                select: { id: true, credits: true, name: true, email: true }
+                select: { id: true, credits: true, name: true, email: true, type: true }
             });
 
             if (!user) {
                 return { success: false, message: 'Client not found' };
             }
 
+            // Skip credit check for admin users
+            const isAdmin = user.type === 'admin' || user.type === 'su_admin';
             const requiredCredits = 1; // 1 credit per message
-            if ((user.credits ?? 0) < requiredCredits) {
+
+            if (!isAdmin && (user.credits ?? 0) < requiredCredits) {
                 return {
                     success: false,
                     message: `Insufficient credits. You have ${user.credits ?? 0} credits, but ${requiredCredits} credit is required to send a message.`
@@ -818,22 +821,25 @@ export class WhatsAppService {
                 }
             }
 
-            // Deduct credits after successful sending
-            const updatedUser = await this.prisma.user.update({
-                where: { id: clientId },
-                data: { credits: { decrement: requiredCredits } },
-                select: { id: true, credits: true, name: true, email: true }
-            });
+            // Deduct credits after successful sending (skip for admin users)
+            let updatedUser = user;
+            if (!isAdmin) {
+                updatedUser = await this.prisma.user.update({
+                    where: { id: clientId },
+                    data: { credits: { decrement: requiredCredits } },
+                    select: { id: true, credits: true, name: true, email: true, type: true }
+                });
 
-            // Log credit deduction
-            await this.prisma.creditLog.create({
-                data: {
-                    clientId,
-                    amount: requiredCredits,
-                    type: 'DECREMENT',
-                    description: `Credit deducted for sending message to ${whatsappNumber}`,
-                },
-            });
+                // Log credit deduction
+                await this.prisma.creditLog.create({
+                    data: {
+                        clientId,
+                        amount: requiredCredits,
+                        type: 'DECREMENT',
+                        description: `Credit deducted for sending message to ${whatsappNumber}`,
+                    },
+                });
+            }
 
             // Fetch the client's WhatsApp number from the sessionData
             const session = await this.prisma.whatsAppSession.findFirst({
@@ -1018,13 +1024,17 @@ export class WhatsAppService {
         }
         const user = await this.prisma.user.findUnique({
             where: { id: clientId },
-            select: { id: true, credits: true, name: true, email: true }
+            select: { id: true, credits: true, name: true, email: true, type: true }
         });
         if (!user) {
             return { success: false, message: 'Client not found', data: [] };
         }
+
+        // Skip credit check for admin users
+        const isAdmin = user.type === 'admin' || user.type === 'su_admin';
         const requiredCredits = phoneNumbers.length;
-        if ((user.credits ?? 0) < requiredCredits) {
+
+        if (!isAdmin && (user.credits ?? 0) < requiredCredits) {
             return {
                 success: false,
                 message: `Insufficient credits. You have ${user.credits ?? 0} credits, but ${requiredCredits} credits are required to send ${phoneNumbers.length} messages.`,
@@ -1141,22 +1151,25 @@ export class WhatsAppService {
         }
         await this.cleanupOldMessages(clientId);
         if (successfulMessages > 0) {
-            const updatedUser = await this.prisma.user.update({
-                where: { id: clientId },
-                data: { credits: { decrement: successfulMessages } },
-                select: { id: true, credits: true, name: true, email: true }
-            });
-            await this.prisma.creditLog.create({
-                data: {
-                    clientId,
-                    amount: successfulMessages,
-                    type: 'DECREMENT',
-                    description: `Credits deducted for sending ${successfulMessages} messages in bulk operation`,
-                },
-            });
+            let updatedUser = user;
+            if (!isAdmin) {
+                updatedUser = await this.prisma.user.update({
+                    where: { id: clientId },
+                    data: { credits: { decrement: successfulMessages } },
+                    select: { id: true, credits: true, name: true, email: true, type: true }
+                });
+                await this.prisma.creditLog.create({
+                    data: {
+                        clientId,
+                        amount: successfulMessages,
+                        type: 'DECREMENT',
+                        description: `Credits deducted for sending ${successfulMessages} messages in bulk operation`,
+                    },
+                });
+            }
             results.forEach(result => {
                 if (result.success && result.data) {
-                    result.data.creditsUsed = 1;
+                    result.data.creditsUsed = isAdmin ? 0 : 1;
                     result.data.remainingCredits = updatedUser.credits;
                 }
             });
@@ -1172,11 +1185,11 @@ export class WhatsAppService {
                     successful,
                     failed,
                     successRate: (successful / phoneNumbers.length) * 100,
-                    creditsUsed: successfulMessages,
-                    creditsRemaining: successfulMessages > 0 ? (await this.prisma.user.findUnique({
+                    creditsUsed: isAdmin ? 0 : successfulMessages,
+                    creditsRemaining: isAdmin ? user.credits : (successfulMessages > 0 ? (await this.prisma.user.findUnique({
                         where: { id: clientId },
                         select: { credits: true }
-                    }))?.credits : user.credits,
+                    }))?.credits : user.credits),
                 }
             }
         };
@@ -1989,13 +2002,17 @@ export class WhatsAppService {
             await this.autoSyncMessages(clientId);
             const user = await this.prisma.user.findUnique({
                 where: { id: clientId },
-                select: { id: true, credits: true, name: true, email: true }
+                select: { id: true, credits: true, name: true, email: true, type: true }
             });
             if (!user) {
                 return { success: false, message: 'Client not found' };
             }
+
+            // Skip credit check for admin users
+            const isAdmin = user.type === 'admin' || user.type === 'su_admin';
             const requiredCredits = phoneNumbers.length;
-            if ((user.credits ?? 0) < requiredCredits) {
+
+            if (!isAdmin && (user.credits ?? 0) < requiredCredits) {
                 return {
                     success: false,
                     message: `Insufficient credits. You have ${user.credits ?? 0} credits, but ${requiredCredits} credits are required to send ${phoneNumbers.length} template messages.`
@@ -2031,8 +2048,9 @@ export class WhatsAppService {
                         variables,
                         processedMessage: processedMessage.substring(0, 500),
                         recipientCount: phoneNumbers.length,
-                        creditsRequired: requiredCredits,
+                        creditsRequired: isAdmin ? 0 : requiredCredits,
                         availableCredits: user.credits,
+                        isAdmin,
                     }),
                 },
             });
@@ -2152,9 +2170,16 @@ export class WhatsAppService {
         }
 
         // 3. Credit check
-        const user = await this.prisma.user.findUnique({ where: { id: clientId }, select: { credits: true } });
+        const user = await this.prisma.user.findUnique({
+            where: { id: clientId },
+            select: { credits: true, type: true }
+        });
+
+        // Skip credit check for admin users
+        const isAdmin = user.type === 'admin' || user.type === 'su_admin';
         const requiredCredits = 1;
-        if ((user.credits ?? 0) < requiredCredits) {
+
+        if (!isAdmin && (user.credits ?? 0) < requiredCredits) {
             return { success: false, message: `Insufficient credits. You have ${user.credits ?? 0} credits, but ${requiredCredits} credit is required to send a file.` };
         }
 
@@ -2173,19 +2198,21 @@ export class WhatsAppService {
             }
         }
 
-        // 5. Deduct credits and log
-        await this.prisma.user.update({
-            where: { id: clientId },
-            data: { credits: { decrement: requiredCredits } },
-        });
-        await this.prisma.creditLog.create({
-            data: {
-                clientId,
-                amount: requiredCredits,
-                type: 'DECREMENT',
-                description: `Credit deducted for sending file to ${whatsappNumber}`,
-            },
-        });
+        // 5. Deduct credits and log (skip for admin users)
+        if (!isAdmin) {
+            await this.prisma.user.update({
+                where: { id: clientId },
+                data: { credits: { decrement: requiredCredits } },
+            });
+            await this.prisma.creditLog.create({
+                data: {
+                    clientId,
+                    amount: requiredCredits,
+                    type: 'DECREMENT',
+                    description: `Credit deducted for sending file to ${whatsappNumber}`,
+                },
+            });
+        }
 
         // Find contact if exists
         const contact = await this.prisma.contact.findFirst({
@@ -2263,10 +2290,11 @@ export class WhatsAppService {
                     contactId,
                     phoneNumber: whatsappNumber,
                     retryCount,
-                    creditsUsed: requiredCredits,
+                    creditsUsed: isAdmin ? 0 : requiredCredits,
                     media: true,
                     attachmentId: handlerResult.attachmentId,
                     fileUrl: handlerResult.fileUrl,
+                    isAdmin,
                 }),
                 extra: {
                     messageType: 'media',
@@ -2285,7 +2313,7 @@ export class WhatsAppService {
                 type: sentMsg.type || 'media',
                 direction: 'OUTBOUND',
                 retryCount,
-                creditsUsed: requiredCredits,
+                creditsUsed: isAdmin ? 0 : requiredCredits,
                 handlerResult,
             },
         };
