@@ -9,6 +9,7 @@ import { ClientModule } from './client/client.module';
 import { TemplateModule } from './template/template.module';
 import { LogModule } from './log/log.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { BrandCustomizationModule } from './brand-customization/brand-customization.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
     TemplateModule,
     LogModule,
     DashboardModule,
+    BrandCustomizationModule,
   ],
 })
 export class AdminModule { }

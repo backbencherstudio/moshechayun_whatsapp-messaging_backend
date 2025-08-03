@@ -95,6 +95,7 @@ model User {
   contacts         Contact[]         @relation("ClientContacts")
   conversations    Conversation[]    @relation("ClientConversations")
   messages         Message[]         @relation("ClientMessages")
+  // brandCustomization BrandCustomization[] @relation("ClientBrandCustomization")
 
   @@map("users")
 }
@@ -526,4 +527,28 @@ model CreditLog {
   description String?
   extra       Json?
   createdAt   DateTime @default(now())
+}
+
+// Brand Customization model for company branding
+model BrandCustomization {
+  id         String    @id @default(cuid())
+  created_at DateTime  @default(now())
+  updated_at DateTime  @default(now())
+  deleted_at DateTime?
+
+  // Company Information
+  company_name String?
+  slogan       String?
+
+  // Logo Information
+  logo String?
+
+  // Color Scheme
+  primary_color   String? // hex color code
+  secondary_color String? // hex color code
+
+  // Status and ownership
+  status Int? @default(1) @db.SmallInt
+
+  @@map("brand_customizations")
 }
