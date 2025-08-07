@@ -1483,7 +1483,7 @@ export class WhatsAppService {
  */
     async getConversations(clientId: string) {
         try {
-            await this.autoSyncMessages(clientId);
+            await this.syncAllMessages(clientId);
             // Dynamically get the client's own WhatsApp number (jid)
             const clientNumber = await this.getClientNumber(clientId);
             // Ensure the number is in the correct format (jid)

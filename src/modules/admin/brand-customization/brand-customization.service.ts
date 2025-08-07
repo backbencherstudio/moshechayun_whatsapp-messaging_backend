@@ -63,7 +63,7 @@ export class BrandCustomizationService {
         }
       }
 
-      return brandCustomizations;
+      return {success: true, data: brandCustomizations };
     } catch (error) {
       throw error;
     }
@@ -88,7 +88,7 @@ export class BrandCustomizationService {
         );
       }
 
-      return brandCustomization;
+      return {success: true, data: brandCustomization };
     } catch (error) {
       throw error;
     }
@@ -132,7 +132,7 @@ export class BrandCustomizationService {
         );
       }
 
-      return updatedBrand;
+      return {success: true, data: updatedBrand };
     } catch (error) {
       throw error;
     }
@@ -141,7 +141,7 @@ export class BrandCustomizationService {
   /**
    * Remove brand customization (soft delete) with file cleanup
    */
-  async remove(id: string): Promise<{ message: string }> {
+  async remove(id: string) {
     try {
       // Check if brand customization exists
       const existingBrand = await this.prisma.brandCustomization.findFirst({
@@ -163,7 +163,7 @@ export class BrandCustomizationService {
         data: { deleted_at: new Date() }
       });
 
-      return { message: 'Brand customization removed successfully' };
+      return { success: true, message: 'Brand customization deleted successfully' };
     } catch (error) {
       throw error;
     }

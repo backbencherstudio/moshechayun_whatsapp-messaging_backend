@@ -187,7 +187,7 @@ export class WhatsAppController {
 
   // Sync and Maintenance
   @Post('sync')
-  @Roles(Role.CLIENT)
+  @Roles(Role.CLIENT, Role.ADMIN)
   @ApiOperation({ summary: 'Sync messages from WhatsApp' })
   @ApiResponse({ status: 200, description: 'Messages synced successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
@@ -197,7 +197,7 @@ export class WhatsAppController {
   }
 
   @Post('fix-attachments')
-  @Roles(Role.CLIENT)
+  @Roles(Role.CLIENT, Role.ADMIN)
   @ApiOperation({ summary: 'Fix messages with media types but no attachments' })
   @ApiResponse({ status: 200, description: 'Attachments fixed successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
