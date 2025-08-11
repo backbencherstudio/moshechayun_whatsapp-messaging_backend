@@ -150,7 +150,7 @@ export class ClientService {
     }
 
     let data = { ...updateClientDto };
-    console.log("updateClientDto", updateClientDto)
+
     if (updateClientDto.password) {
       data.password = await bcrypt.hash(updateClientDto.password, appConfig().security.salt);
     }
