@@ -63,7 +63,7 @@ export class BrandCustomizationService {
         }
       }
 
-      return {success: true, data: brandCustomizations };
+      return { success: true, data: brandCustomizations };
     } catch (error) {
       throw error;
     }
@@ -88,7 +88,7 @@ export class BrandCustomizationService {
         );
       }
 
-      return {success: true, data: brandCustomization };
+      return { success: true, data: brandCustomization };
     } catch (error) {
       throw error;
     }
@@ -108,7 +108,16 @@ export class BrandCustomizationService {
         throw new NotFoundException(`Brand customization with ID ${id} not found`);
       }
 
-      // Handle file upload if provided
+      // If company name is being updated, delete the logo
+      if (updateBrandCustomizationDto.company_name) {
+        if (existingBrand.logo) {
+          await SojebStorage.delete(appConfig().storageUrl.logo + existingBrand.logo);
+        }
+        // Clear logo from database
+        updateBrandCustomizationDto.logo = null;
+      }
+
+      // Handle file upload if provided (logo update)
       if (file) {
         // Delete old logo file if exists
         if (existingBrand.logo) {
@@ -119,6 +128,9 @@ export class BrandCustomizationService {
         const fileName = StringHelper.generateRandomFileName(file.originalname);
         await SojebStorage.put(appConfig().storageUrl.logo + fileName, file.buffer);
         updateBrandCustomizationDto.logo = fileName;
+
+        // Clear company name from database
+        updateBrandCustomizationDto.company_name = null;
       }
 
       const updatedBrand = await this.prisma.brandCustomization.update({
@@ -132,7 +144,7 @@ export class BrandCustomizationService {
         );
       }
 
-      return {success: true, data: updatedBrand };
+      return { success: true, data: updatedBrand };
     } catch (error) {
       throw error;
     }
